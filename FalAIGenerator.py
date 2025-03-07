@@ -6,6 +6,7 @@ import json
 import time
 import argparse
 import shutil
+import requests
 from pathlib import Path
 from datetime import datetime
 import fal_client
@@ -93,7 +94,7 @@ def on_queue_update(update):
             print(f"  Progress: {log['message']}")
 
 def save_image(result, prompt_data, output_dir, prompt_id):
-    """Save generated image(s) to output directory"""
+    """Save generated image(s) to output directory without individual JSON files"""
     image_dir = os.path.join(output_dir, 'images')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
@@ -104,43 +105,70 @@ def save_image(result, prompt_data, output_dir, prompt_id):
         # Handle flux model format
         for i, img_data in enumerate(result['images']):
             if 'url' in img_data:
-                # Create filename
+                # Create filename with clear ID reference
                 ext = os.path.splitext(img_data['url'])[1] or '.png'
-                filename = f"{timestamp}_{prompt_id}_{i}{ext}"
+                filename = f"prompt{prompt_id}_{timestamp}_{i}{ext}"
                 filepath = os.path.join(image_dir, filename)
                 
-                # Save image URL to file for reference
-                with open(f"{filepath}.json", 'w') as f:
-                    json.dump({
-                        'prompt': prompt_data['prompt'],
-                        'model': prompt_data['model'],
-                        'params': prompt_data['params'],
-                        'image_url': img_data['url'],
-                        'generated_at': timestamp
-                    }, f, indent=2)
+                # Download the image from URL
+                try:
+                    response = requests.get(img_data['url'], stream=True)
+                    if response.status_code == 200:
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        print(f"  Downloaded image to: {filepath}")
+                    else:
+                        print(f"  Error downloading image: HTTP {response.status_code}")
+                except Exception as e:
+                    print(f"  Error downloading image: {e}")
                 
                 print(f"  Image available at: {img_data['url']}")
-                saved_files.append({'url': img_data['url'], 'metadata': f"{filepath}.json"})
+                saved_files.append({
+                    'prompt_id': prompt_id,
+                    'type': 'image',
+                    'url': img_data['url'], 
+                    'local_path': filepath,
+                    'filename': os.path.basename(filepath),
+                    'prompt': prompt_data['prompt'],
+                    'model': prompt_data['model'],
+                    'params': prompt_data['params'],
+                    'generated_at': timestamp,
+                    'index': i
+                })
     
     elif 'image' in result and 'url' in result['image']:
         # Handle single image result format
         url = result['image']['url']
         ext = os.path.splitext(url)[1] or '.png'
-        filename = f"{timestamp}_{prompt_id}{ext}"
+        filename = f"prompt{prompt_id}_{timestamp}{ext}"
         filepath = os.path.join(image_dir, filename)
         
-        # Save image URL to file for reference
-        with open(f"{filepath}.json", 'w') as f:
-            json.dump({
-                'prompt': prompt_data['prompt'],
-                'model': prompt_data['model'],
-                'params': prompt_data['params'],
-                'image_url': url,
-                'generated_at': timestamp
-            }, f, indent=2)
+        # Download the image from URL
+        try:
+            response = requests.get(url, stream=True)
+            if response.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                print(f"  Downloaded image to: {filepath}")
+            else:
+                print(f"  Error downloading image: HTTP {response.status_code}")
+        except Exception as e:
+            print(f"  Error downloading image: {e}")
         
         print(f"  Image available at: {url}")
-        saved_files.append({'url': url, 'metadata': f"{filepath}.json"})
+        saved_files.append({
+            'prompt_id': prompt_id,
+            'type': 'image',
+            'url': url, 
+            'local_path': filepath,
+            'filename': os.path.basename(filepath),
+            'prompt': prompt_data['prompt'],
+            'model': prompt_data['model'],
+            'params': prompt_data['params'],
+            'generated_at': timestamp
+        })
     
     else:
         print(f"  Warning: Unexpected result format: {result}")
@@ -149,7 +177,7 @@ def save_image(result, prompt_data, output_dir, prompt_id):
     return saved_files
 
 def save_video(result, prompt_data, output_dir, prompt_id):
-    """Save generated video(s) to output directory"""
+    """Save generated video(s) to output directory without individual JSON files"""
     video_dir = os.path.join(output_dir, 'videos')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
@@ -160,42 +188,69 @@ def save_video(result, prompt_data, output_dir, prompt_id):
         # Handle video result
         url = result['video']['url']
         ext = os.path.splitext(url)[1] or '.mp4'
-        filename = f"{timestamp}_{prompt_id}{ext}"
+        filename = f"prompt{prompt_id}_{timestamp}{ext}"
         filepath = os.path.join(video_dir, filename)
         
-        # Save video URL to file for reference
-        with open(f"{filepath}.json", 'w') as f:
-            json.dump({
-                'prompt': prompt_data['prompt'],
-                'model': prompt_data['model'],
-                'params': prompt_data['params'],
-                'video_url': url,
-                'generated_at': timestamp
-            }, f, indent=2)
+        # Download the video from URL
+        try:
+            response = requests.get(url, stream=True)
+            if response.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                print(f"  Downloaded video to: {filepath}")
+            else:
+                print(f"  Error downloading video: HTTP {response.status_code}")
+        except Exception as e:
+            print(f"  Error downloading video: {e}")
         
         print(f"  Video available at: {url}")
-        saved_files.append({'url': url, 'metadata': f"{filepath}.json"})
+        saved_files.append({
+            'prompt_id': prompt_id,
+            'type': 'video',
+            'url': url, 
+            'local_path': filepath,
+            'filename': os.path.basename(filepath),
+            'prompt': prompt_data['prompt'],
+            'model': prompt_data['model'],
+            'params': prompt_data['params'],
+            'generated_at': timestamp
+        })
     
     elif 'videos' in result:
         # Handle multiple videos result
         for i, video_data in enumerate(result['videos']):
             if 'url' in video_data:
                 ext = os.path.splitext(video_data['url'])[1] or '.mp4'
-                filename = f"{timestamp}_{prompt_id}_{i}{ext}"
+                filename = f"prompt{prompt_id}_{timestamp}_{i}{ext}"
                 filepath = os.path.join(video_dir, filename)
                 
-                # Save video URL to file for reference
-                with open(f"{filepath}.json", 'w') as f:
-                    json.dump({
-                        'prompt': prompt_data['prompt'],
-                        'model': prompt_data['model'],
-                        'params': prompt_data['params'],
-                        'video_url': video_data['url'],
-                        'generated_at': timestamp
-                    }, f, indent=2)
+                # Download the video from URL
+                try:
+                    response = requests.get(video_data['url'], stream=True)
+                    if response.status_code == 200:
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        print(f"  Downloaded video to: {filepath}")
+                    else:
+                        print(f"  Error downloading video: HTTP {response.status_code}")
+                except Exception as e:
+                    print(f"  Error downloading video: {e}")
                 
                 print(f"  Video available at: {video_data['url']}")
-                saved_files.append({'url': video_data['url'], 'metadata': f"{filepath}.json"})
+                saved_files.append({
+                    'prompt_id': prompt_id,
+                    'type': 'video',
+                    'url': video_data['url'], 
+                    'local_path': filepath,
+                    'filename': os.path.basename(filepath),
+                    'prompt': prompt_data['prompt'],
+                    'model': prompt_data['model'],
+                    'params': prompt_data['params'],
+                    'generated_at': timestamp,
+                    'index': i
+                })
     
     else:
         print(f"  Warning: Unexpected result format for video: {result}")
@@ -219,8 +274,10 @@ def generate_image(prompt_data, output_dir):
         params = {}
     
     # Add default image parameters if not specified
-    if 'image_size' not in params:
-        params['image_size'] = 'portrait_9_16'  # Vertical video format
+    if 'image_size' not in params and 'width' not in params and 'height' not in params:
+        # Use vertical 9:16 format (e.g., 576x1024)
+        params['width'] = 576
+        params['height'] = 1024
     if 'num_images' not in params:
         params['num_images'] = 2  # Generate 2 images by default
     
@@ -270,7 +327,8 @@ def generate_video(prompt_data, output_dir):
                 'prompt': prompt_text,
                 'model': DEFAULT_IMAGE_MODEL,
                 'params': {
-                    'image_size': 'portrait_9_16',
+                    'width': 576,
+                    'height': 1024,
                     'num_images': 1
                 }
             }
@@ -304,14 +362,56 @@ def generate_video(prompt_data, output_dir):
         return []
 
 def save_summary(results, output_dir):
-    """Save a summary of generated content"""
+    """Save a detailed summary of generated content"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    summary_path = os.path.join(output_dir, 'logs', f"summary_{timestamp}.json")
+    log_dir = os.path.join(output_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    summary_path = os.path.join(log_dir, f"summary_{timestamp}.json")
     
+    # Create a more detailed summary with all metadata
+    summary_data = {
+        'timestamp': timestamp,
+        'generated_at': datetime.now().isoformat(),
+        'prompt_count': len(results),
+        'file_count': sum(len(result['files']) for result in results),
+        'results': []
+    }
+    
+    # Add detailed information for each prompt and its files
+    for result in results:
+        prompt_data = {
+            'prompt_id': result['prompt_id'],
+            'type': result['type'],
+            'prompt': result['prompt'],
+            'model': result['model'],
+            'files': []
+        }
+        
+        # Add detailed information for each file
+        for file in result['files']:
+            file_data = {
+                'filename': os.path.basename(file['local_path']),
+                'type': file['type'],
+                'url': file['url'],
+                'model': file.get('model', file.get('model', prompt_data['model'])),
+                'params': file.get('params', {}),
+                'generated_at': file['generated_at']
+            }
+            
+            # Add optional fields if they exist
+            if 'index' in file:
+                file_data['index'] = file['index']
+                
+            prompt_data['files'].append(file_data)
+            
+        summary_data['results'].append(prompt_data)
+    
+    # Write the summary file
     with open(summary_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(summary_data, f, indent=2)
     
-    print(f"\nSummary saved to: {summary_path}")
+    print(f"\nDetailed summary with all metadata saved to: {summary_path}")
+    return summary_path
 
 def generate_csv_template(output_path):
     """Generate a template CSV file with example prompts"""
