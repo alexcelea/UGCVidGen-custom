@@ -21,9 +21,20 @@ logs/
 video_creation.log
 
 # Generated files
-final_videos/
 used_hooks.txt
 video_list.txt
+
+# Directory content ignore patterns with .gitkeep exceptions
+tts_files/*
+!tts_files/.gitkeep
+ai_generated/images/*
+!ai_generated/images/.gitkeep
+ai_generated/videos/*
+!ai_generated/videos/.gitkeep
+ai_generated/logs/*
+!ai_generated/logs/.gitkeep
+final_videos/*
+!final_videos/.gitkeep
 
 # OS specific files
 .DS_Store
