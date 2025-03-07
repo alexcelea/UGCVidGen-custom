@@ -20,8 +20,9 @@ build/
 *.egg-info/
 
 # Logs
+/logs/*
+!/logs/.gitkeep
 *.log
-logs/
 video_creation.log
 
 # Generated files
