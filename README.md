@@ -1,4 +1,4 @@
-# UGC Video Generator
+# UGC Video Generator - customized
 
 A Python script to automatically generate UGC (User Generated Content) style videos by combining hook videos, text overlays, CTA videos, and background music.
 
