@@ -2,4 +2,6 @@ moviepy==1.0.3
 pandas==2.0.3
 numpy==1.24.3
 tqdm==4.66.1
-Pillow==9.5.0 
+Pillow==9.5.0
+elevenlabs==0.2.26
+python-dotenv==1.0.0 
