@@ -6,7 +6,7 @@ import sys
 from moviepy.editor import (
     VideoFileClip, TextClip, CompositeVideoClip, 
     concatenate_videoclips, AudioFileClip, concatenate_audioclips,
-    CompositeAudioClip
+    CompositeAudioClip, ColorClip
 )
 import time
 from tqdm import tqdm
@@ -15,13 +15,16 @@ import tempfile
 import subprocess
 from elevenlabs import generate, save, set_api_key
 from dotenv import load_dotenv
+from datetime import datetime
+import requests
+import json
 
 # Add the parent directory to the path to allow importing from the root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import the configuration
-from config import UGC_CONFIG, TARGET_RESOLUTION
-from scripts.utils import setup_directories
+from config import UGC_CONFIG, TARGET_RESOLUTION, ELEVENLABS_API_KEY, ELEVENLABS_VOICE
+from scripts.utils import setup_directories, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area
 
 # Verify ffmpeg installation
 try:
@@ -372,9 +375,21 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
             hook_clip = hook_clip.loop(duration=tts_audio.duration)
 
         print("Adding text overlay...")
-        # Calculate text width with margins
-        text_width = hook_clip.w - 120  # 80px margin on each side
+        # Get TikTok margin settings if enabled
+        tiktok_margins = UGC_CONFIG.get("tiktok_margins", {})
+        use_tiktok_margins = tiktok_margins.get("enabled", False)
         
+        # Calculate text width with appropriate margins
+        if use_tiktok_margins:
+            horizontal_margin = tiktok_margins.get("horizontal_text_margin", 240)
+        else:
+            horizontal_margin = 120  # Default margin
+            
+        # Calculate text width with margins
+        text_width = hook_clip.w - horizontal_margin
+        logging.info(f"Text width will be {text_width}px (with {horizontal_margin}px margin)")
+        
+        # Set up text clip parameters
         # Create main text clip with improved smoothness
         text_clip_args = {
             "txt": hook_text,
@@ -392,23 +407,57 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
         
         # Reduced glow effect
         glow_layers = 1  # Reduced from 2 to 1 layers
-        glow_clips = []
         
-        # Create fewer glow layers with lower opacity
-        for i in range(glow_layers):
-            glow = (TextClip(**{**text_clip_args, 
-                              "color": "black",
-                              "stroke_width": 2 + i,  # Reduced from 4+i to 2+i
-                              "stroke_color": "black"})
-                   .set_duration(hook_clip.duration)
-                   .set_position(("center", 200))
-                   .set_opacity(0.2))  # Reduced opacity from 0.3 to 0.2
-            glow_clips.append(glow)
-
-        # Main text on top
-        main_text = (TextClip(**text_clip_args)
-                    .set_duration(hook_clip.duration)
-                    .set_position(("center", 200)))
+        # Get appropriate Y position for text with TikTok safe areas
+        if use_tiktok_margins:
+            # Use our custom text positioning utility for consistent text placement
+            # Set position to 33% of safe area for primary hook text
+            main_text = position_text_in_tiktok_safe_area(
+                TextClip(**text_clip_args),
+                tiktok_margins,
+                TARGET_RESOLUTION,
+                position_factor=0.33  # Position text 1/3 into the safe area
+            ).set_duration(hook_clip.duration)
+            
+            # Apply the same positioning to glow effects for consistency
+            glow_clips = []
+            for i in range(glow_layers):
+                glow_args = {**text_clip_args, 
+                           "color": "black",
+                           "stroke_width": 2 + i,
+                           "stroke_color": "black"}
+                
+                glow = position_text_in_tiktok_safe_area(
+                    TextClip(**glow_args),
+                    tiktok_margins,
+                    TARGET_RESOLUTION,
+                    position_factor=0.33  # Match main text position
+                ).set_duration(hook_clip.duration).set_opacity(0.2)
+                
+                glow_clips.append(glow)
+            
+            logging.info(f"Positioned hook text with TikTok safe margins at position factor: 0.33")
+        else:
+            # Default positioning when not using TikTok margins
+            text_y_position = 350  # Default position
+            logging.info(f"Using standard text position: {text_y_position}px")
+            
+            # Create glow layers
+            glow_clips = []
+            for i in range(glow_layers):
+                glow = (TextClip(**{**text_clip_args, 
+                                "color": "black",
+                                "stroke_width": 2 + i,
+                                "stroke_color": "black"})
+                       .set_duration(hook_clip.duration)
+                       .set_position(("center", text_y_position))
+                       .set_opacity(0.2))
+                glow_clips.append(glow)
+                
+            # Main text on top
+            main_text = (TextClip(**text_clip_args)
+                        .set_duration(hook_clip.duration)
+                        .set_position(("center", text_y_position)))
 
         # Combine hook video with text overlay
         print("Combining hook and text...")
@@ -442,6 +491,11 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
         print("Creating final video...")
         final_video = concatenate_videoclips([combined_hook] + cta_clips)
         
+        # Add debug visualization if enabled
+        if use_tiktok_margins and tiktok_margins.get("show_debug_visualization", False):
+            final_video = visualize_safe_area(final_video, tiktok_margins, TARGET_RESOLUTION)
+            logging.info("Added debug visualization of TikTok safe zones")
+            
         # Add background music
         print("Adding background music...")
         background_music = AudioFileClip(music_path)
