@@ -1,0 +1,11 @@
+id,type,prompt,model,params
+1,image,"A person excitedly looking at their phone with a surprised expression, perfect for a hook about a money-saving app","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"
+2,video,"A stylish person walking through a busy mall looking at their phone, captivated by something on screen","fal-ai/minimax-video/image-to-video","{}"
+3,image,"Close-up of hands typing on laptop with coffee mug nearby, for productivity app marketing","fal-ai/recraft-v3","{""width"": 576, ""height"": 1024, ""num_images"": 1}"
+4,image,"Person looking shocked at their electric bill, holding it up to camera","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"
+5,image,"Someone cleaning kitchen counter with a surprised look on their face","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"
+6,video,"Person walking down street looking at phone, stopping suddenly with excitement","fal-ai/minimax-video/image-to-video","{}"
+7,image,"Hand holding smartphone showing a social media app with increasing follower count","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"
+8,video,"Person sitting at desk looking frustrated at computer, then smiling as they discover something","fal-ai/minimax-video/image-to-video","{}"
+9,image,"Close-up of someone's face with a 'lightbulb moment' expression","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"
+10,image,"Split screen before/after of messy vs clean room","fal-ai/flux/dev","{""width"": 576, ""height"": 1024, ""num_images"": 2}"

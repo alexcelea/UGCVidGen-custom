@@ -1,12 +1,32 @@
 #!/bin/bash
 
-echo "🚀 Starting UGC Video Generator session..."
+echo "🚀 Starting Content Generator session..."
 
 # Define project-specific paths
-TTS_FILES="./tts_files"
-AI_GENERATED="./ai_generated"
-FINAL_VIDEOS="./final_videos"
-REQUIRED_DIRS=("$TTS_FILES" "$AI_GENERATED/images" "$AI_GENERATED/videos" "$AI_GENERATED/logs" "$FINAL_VIDEOS" "hook_videos" "cta_videos" "music")
+OUTPUT_DIR="./output"
+ASSETS_DIR="./assets"
+CONTENT_DIR="./content"
+
+# Define the required directory structure
+REQUIRED_DIRS=(
+    # Output directories
+    "$OUTPUT_DIR/ugc" 
+    "$OUTPUT_DIR/ugc/tts_files" 
+    "$OUTPUT_DIR/stories" 
+    "$OUTPUT_DIR/ai_generated/images" 
+    "$OUTPUT_DIR/ai_generated/videos" 
+    "$OUTPUT_DIR/ai_generated/logs"
+    
+    # Asset directories 
+    "$ASSETS_DIR/videos/hooks" 
+    "$ASSETS_DIR/videos/ctas" 
+    "$ASSETS_DIR/videos/backgrounds"
+    "$ASSETS_DIR/music" 
+    "$ASSETS_DIR/fonts"
+    
+    # Content directory
+    "$CONTENT_DIR"
+)
 
 # Ensure all required directories exist and have .gitkeep
 echo "🔍 Checking project structure..."
@@ -18,139 +38,117 @@ for dir in "${REQUIRED_DIRS[@]}"; do
     fi
 done
 
-# Check .gitignore to ensure generated content isn't committed
+# Check for .gitignore file
 if [ ! -f ".gitignore" ]; then
-    echo "⚠️ No .gitignore file found. Creating one with recommended patterns..."
-    cat > .gitignore << EOL
-# UGC Video Generator output directories
-tts_files/*
-!tts_files/.gitkeep
-ai_generated/images/*
-!ai_generated/images/.gitkeep
-ai_generated/videos/*
-!ai_generated/videos/.gitkeep
-ai_generated/logs/*
-!ai_generated/logs/.gitkeep
-final_videos/*
-!final_videos/.gitkeep
+    echo "  Creating .gitignore file"
+    cat > .gitignore << 'EOL'
+# Virtual Environment
+venv/
+env/
+ENV/
 
-# Log files
-video_creation.log
-video_list.txt
-used_hooks.txt
-
-# Environment variables
+# Environment variables and secrets
 .env
+.env.*
 
-# Python
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-.venv
-venv/
-ENV/
+*.so
+.Python
 
-# OS specific
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Logs
+/logs/*
+!/logs/.gitkeep
+*.log
+
+# New structure - directory content ignore patterns with .gitkeep exceptions
+output/ugc/*.mp4
+output/ugc/tts_files/*
+!output/ugc/tts_files/.gitkeep
+output/ugc/*.log
+output/ugc/video_list.txt
+output/stories/*.mp4
+output/stories/*.log
+output/ai_generated/images/*
+!output/ai_generated/images/.gitkeep
+output/ai_generated/videos/*
+!output/ai_generated/videos/.gitkeep
+output/ai_generated/logs/*
+!output/ai_generated/logs/.gitkeep
+
+# Content backup
+backups/
+
+# OS specific files
 .DS_Store
 Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
 EOL
-    echo "✅ Created .gitignore file"
 else
-    # Check if important patterns are in .gitignore
-    MISSING_PATTERNS=()
-    for pattern in "tts_files/*" "ai_generated/images/*" "ai_generated/videos/*" "final_videos/*" "video_creation.log" "video_list.txt" "used_hooks.txt" ".env"; do
+    # Ensure all important patterns are in .gitignore
+    patterns_to_check=(
+        "output/ugc/*.mp4"
+        "output/ugc/tts_files/*"
+        "output/stories/*.mp4"
+        "output/ai_generated/images/*"
+        "output/ai_generated/videos/*"
+        "output/ai_generated/logs/*"
+    )
+    
+    missing_patterns=()
+    for pattern in "${patterns_to_check[@]}"; do
         if ! grep -q "$pattern" .gitignore; then
-            MISSING_PATTERNS+=("$pattern")
+            missing_patterns+=("$pattern")
         fi
     done
     
-    if [ ${#MISSING_PATTERNS[@]} -gt 0 ]; then
-        echo "⚠️ Some generated files may not be in .gitignore:"
-        for pattern in "${MISSING_PATTERNS[@]}"; do
-            echo "  - $pattern"
-        done
-        read -p "Would you like to add these patterns to .gitignore? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo "" >> .gitignore
-            echo "# UGC Video Generator output patterns" >> .gitignore
-            for pattern in "${MISSING_PATTERNS[@]}"; do
-                echo "$pattern" >> .gitignore
-            done
-            echo "!tts_files/.gitkeep" >> .gitignore
-            echo "!ai_generated/images/.gitkeep" >> .gitignore
-            echo "!ai_generated/videos/.gitkeep" >> .gitignore
-            echo "!ai_generated/logs/.gitkeep" >> .gitignore
-            echo "!final_videos/.gitkeep" >> .gitignore
-            echo "✅ Added missing patterns to .gitignore"
-        fi
+    if [ ${#missing_patterns[@]} -gt 0 ]; then
+        echo "⚠️ .gitignore file missing important patterns. Consider updating it."
     fi
 fi
 
-# Check for log files from previous runs
-if [ -f "video_creation.log" ] && [ -s "video_creation.log" ]; then
-    LOG_SIZE=$(stat -f%z "video_creation.log" 2>/dev/null || stat -c%s "video_creation.log" 2>/dev/null || echo "unknown")
-    if [ "$LOG_SIZE" != "unknown" ]; then
-        LOG_SIZE_HUMAN=$(numfmt --to=iec --format="%.2f" $LOG_SIZE 2>/dev/null || echo "$LOG_SIZE bytes")
-        echo "📝 Found existing log file ($LOG_SIZE_HUMAN)"
-    else
-        echo "📝 Found existing log file"
+# Check for content files
+for file in "$CONTENT_DIR/hooks.csv" "$CONTENT_DIR/ai_prompts.csv" "$CONTENT_DIR/stories.csv"; do
+    if [ ! -f "$file" ]; then
+        echo "⚠️ Warning: $file not found. You may need to create this file."
     fi
-    
-    echo "Options:"
-    echo "1. Keep log file"
-    echo "2. Archive log file (create backup and start fresh)"
-    echo "3. Clear log file (start fresh without backup)"
-    read -p "Select an option (1-3): " -n 1 -r
-    echo
-    
-    case $REPLY in
-        2)
-            # Archive
-            ARCHIVE_DIR="./archives/$(date +%Y%m%d_%H%M%S)"
-            mkdir -p "$ARCHIVE_DIR"
-            cp "video_creation.log" "$ARCHIVE_DIR/"
-            > "video_creation.log"
-            echo "✅ Log file archived to $ARCHIVE_DIR and reset"
-            ;;
-        3)
-            # Clear
-            > "video_creation.log"
-            echo "✅ Log file cleared"
-            ;;
-        *)
-            echo "⏭️ Keeping log file as is"
-            ;;
-    esac
-fi
+done
 
-# Environment check
-if [ ! -f ".env" ]; then
-    echo "⚠️ No .env file found. API integrations may not work."
-    
-    # Check if sample exists
-    if [ -f ".env.sample" ]; then
-        read -p "Would you like to create .env from sample? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            cp .env.sample .env
-            echo "✅ Created .env file from sample. Please edit with your API keys."
-        fi
+# Check for existing log files
+log_files=("$OUTPUT_DIR/ugc/video_creation.log" "$OUTPUT_DIR/ugc/video_list.txt")
+for log_file in "${log_files[@]}"; do
+    if [ -f "$log_file" ] && [ -s "$log_file" ]; then
+        log_size=$(stat -f%z "$log_file" 2>/dev/null || stat -c%s "$log_file" 2>/dev/null || echo "unknown")
+        echo "📝 Found log file: $log_file (size: $log_size bytes)"
     fi
-fi
+done
 
-# Project status
+# Display project information
+echo -e "\n📊 Project Status"
+echo "==============================="
+echo "📁 INPUT ASSETS:"
+echo " - Used hooks: $(wc -l < "$CONTENT_DIR/used_hooks.txt" 2>/dev/null || echo "0") hooks"
+echo " - Hook videos: $(find "$ASSETS_DIR/videos/hooks" -type f -not -name ".gitkeep" | wc -l) files"
+echo " - CTA videos: $(find "$ASSETS_DIR/videos/ctas" -type f -not -name ".gitkeep" | wc -l) files"
+echo " - Background videos: $(find "$ASSETS_DIR/videos/backgrounds" -type f -not -name ".gitkeep" | wc -l) files"
 echo ""
-echo "📊 Project Status:"
-echo " - Generated videos: $(find "$FINAL_VIDEOS" -type f -not -name '.gitkeep' | wc -l) videos"
-echo " - Used hooks: $(wc -l < used_hooks.txt 2>/dev/null || echo "0") hooks"
-echo " - Available hook videos: $(find "hook_videos" -type f -not -name '.gitkeep' | wc -l) videos"
-echo " - Available CTA videos: $(find "cta_videos" -type f -not -name '.gitkeep' | wc -l) videos"
+echo "🎬 GENERATED CONTENT:"
+echo " - AI generated images: $(find "$OUTPUT_DIR/ai_generated/images" -type f -not -name ".gitkeep" | wc -l) files"
+echo " - AI generated videos: $(find "$OUTPUT_DIR/ai_generated/videos" -type f -not -name ".gitkeep" | wc -l) files"
+echo " - Final UGC videos: $(find "$OUTPUT_DIR/ugc" -name "*.mp4" | wc -l) files"
+echo " - Final Story videos: $(find "$OUTPUT_DIR/stories" -name "*.mp4" | wc -l) files"
+echo "==============================="
 
-echo "💻 UGC Video Generator environment ready!"
-echo "Run 'python UGCReelGen.py' to generate videos or 'python FalAIGenerator.py' to create AI content." 
+echo "✅ Project setup complete. Ready to generate content!" 

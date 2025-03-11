@@ -23,23 +23,24 @@ build/
 /logs/*
 !/logs/.gitkeep
 *.log
-video_creation.log
 
-# Generated files
-used_hooks.txt
-video_list.txt
+# New structure patterns
+output/ugc/*.mp4
+output/ugc/tts_files/*
+!output/ugc/tts_files/.gitkeep
+output/ugc/*.log
+output/ugc/video_list.txt
+output/stories/*.mp4
+output/stories/*.log
+output/ai_generated/images/*
+!output/ai_generated/images/.gitkeep
+output/ai_generated/videos/*
+!output/ai_generated/videos/.gitkeep
+output/ai_generated/logs/*
+!output/ai_generated/logs/.gitkeep
 
-# Directory content ignore patterns with .gitkeep exceptions
-tts_files/*
-!tts_files/.gitkeep
-ai_generated/images/*
-!ai_generated/images/.gitkeep
-ai_generated/videos/*
-!ai_generated/videos/.gitkeep
-ai_generated/logs/*
-!ai_generated/logs/.gitkeep
-final_videos/*
-!final_videos/.gitkeep
+# Content backup
+backups/
 
 # OS specific files
 .DS_Store
@@ -49,4 +50,4 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
