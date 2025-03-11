@@ -61,13 +61,13 @@ STORY_CONFIG = {
     "music_folder": "assets/music",
     "output_folder": "output/stories",
     "font": "assets/fonts/BeVietnamPro-Medium.ttf",
-    "heading_font_size": 70,
+    "heading_font_size": 80,
     "body_font_size": 60,
     "text_color": "white",
     "overlay_color": "black",
     "overlay_opacity": 0.6,
     "log_file": "output/stories/story_creation.log",
-    "words_per_minute": 200,  # Average reading speed
+    "words_per_minute": 220,  # Average reading speed is 180
     "min_segment_duration": 3.0,  # Minimum seconds per segment
     "max_segment_duration": 8.0,  # Maximum seconds per segment
     "title_duration": 3.0,  # Duration for title display

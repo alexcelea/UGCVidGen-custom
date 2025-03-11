@@ -52,5 +52,18 @@ Thumbs.db
 *.swp
 *.swo
 
-# Video files
+# Video and audio files
 *.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.ogg
+*.flac
+*.m4b
