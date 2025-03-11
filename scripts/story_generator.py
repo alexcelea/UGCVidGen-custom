@@ -11,12 +11,16 @@ from datetime import datetime
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, ColorClip
 import argparse
 import csv
+import re
 
 # Add the parent directory to the path to allow importing from the root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config import STORY_CONFIG, TARGET_RESOLUTION
 from scripts.utils import setup_directories, load_csv, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area
+
+# Project name for filenames
+PROJECT_NAME = "StoryGen"
 
 def setup_logging():
     """Set up logging configuration"""
@@ -447,6 +451,59 @@ def create_story_video(story_data, background_path, music_path, output_path):
             music_filename
         ])
 
+def create_descriptive_filename(story_data, background_path, music_path):
+    """Create a descriptive filename that includes elements from the story, background, and music."""
+    # Get story details
+    story_id = story_data.get('id', '0')
+    title = story_data.get('title', '')
+    background_theme = story_data.get('background_theme', '').lower()
+    music_mood = story_data.get('music_mood', '').lower()
+    
+    # Get base names without extensions
+    background_name = os.path.splitext(os.path.basename(background_path))[0]
+    music_name = os.path.splitext(os.path.basename(music_path))[0]
+    
+    # Process title: keep first few words, convert to camelCase (if title exists)
+    if title:
+        # Clean up special characters
+        cleaned_title = re.sub(r'[^\w\s-]', '', title)
+        
+        # Split into words and limit to first few
+        words = cleaned_title.split()
+        selected_words = words[:5] if len(words) > 5 else words
+        
+        # Convert to camelCase
+        if selected_words:
+            # First word lowercase
+            selected_words[0] = selected_words[0].lower()
+            # Rest with first letter capitalized
+            for i in range(1, len(selected_words)):
+                selected_words[i] = selected_words[i].capitalize() if selected_words[i] else ''
+            
+            # Join without spaces
+            title_summary = ''.join(selected_words)
+        else:
+            title_summary = 'untitled'
+    else:
+        title_summary = 'untitled'
+    
+    # Clean up names
+    background_name = re.sub(r'\s+', '_', background_name)[:20]  # Limit length
+    music_name = re.sub(r'\s+', '_', music_name)[:20]  # Limit length
+    
+    # Add date in format YYYYMMDD_HHMMSS
+    today = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Combine components - format: YYYYMMDD_HHMMSS_sID_titlesummary_theme_mood_bgname_musicname.mp4
+    filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}_{background_name}_{music_name}.mp4"
+    
+    # Ensure the filename isn't too long
+    if len(filename) > 100:
+        # If we need to truncate, keep just the essential parts
+        filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}.mp4"
+    
+    return filename
+
 def main():
     """Main entry point for story video generator"""
     # Parse command line arguments
@@ -521,12 +578,10 @@ def main():
             logging.error("No music files found. Please add music to the music directory.")
             continue
         
-        # Generate output filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_title = story.get('title', f"Story_{story['id']}").replace(' ', '_').replace('"', '').replace("'", "")[:20]
+        # Generate descriptive output filename
         output_path = os.path.join(
             STORY_CONFIG["output_folder"],
-            f"{timestamp}_story_{story['id']}_{safe_title}.mp4"
+            create_descriptive_filename(story, background_path, music_path)
         )
         
         # Create the story video

@@ -67,7 +67,7 @@ STORY_CONFIG = {
     "overlay_color": "black",
     "overlay_opacity": 0.6,
     "log_file": "output/stories/story_creation.log",
-    "words_per_minute": 220,  # Average reading speed is 180
+    "words_per_minute": 200,  # Average reading speed is 180
     "min_segment_duration": 3.0,  # Minimum seconds per segment
     "max_segment_duration": 8.0,  # Maximum seconds per segment
     "title_duration": 3.0,  # Duration for title display

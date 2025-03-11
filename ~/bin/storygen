@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Shortcut script to launch the story generator
+# Using absolute paths for reliability
+
+# The project directory
+PROJECT_DIR="/Users/alexandru/Projects/ugc-vid-generator/UGCVidGen"
+
+# Change to the project directory first, then run the Python script
+cd "$PROJECT_DIR"
+python3 "$PROJECT_DIR/scripts/story_generator.py" "$@" 

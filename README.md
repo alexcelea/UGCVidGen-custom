@@ -46,6 +46,10 @@ A Python toolkit to automatically generate different types of content videos, in
   - Theme-based background selection
   - Intelligently breaks stories into readable segments
   - Combines title and story segments with appropriate timing
+  - TikTok-safe margins for text positioning
+  - Paragraph-based segmentation with minimum length handling
+  - Smart text positioning based on content length
+  - Descriptive filename generation
 - **Shared Features**
   - Descriptive filenames with content details
   - Tracking of used content to avoid repetition
@@ -116,6 +120,7 @@ UGCVidGen/                 # Project root directory
 │
 ├── project-start.sh        # Script to setup and start the project
 ├── project-end.sh          # Script to clean up and archive content
+├── storygen                # Shortcut script to launch story generator
 ├── config.py               # Centralized configuration
 ├── main.py                 # Unified entry point
 ├── requirements.txt
@@ -188,10 +193,23 @@ You can generate hook videos and images using Fal AI:
 
 1. Add background videos to the `assets/videos/backgrounds` folder
 2. Create or edit `content/stories.csv` with your story content
-3. Run the story generator:
+3. Run the story generator using either method:
    ```
+   # Using main.py
    python main.py --type story
+   
+   # Using the storygen shortcut script
+   ./storygen
    ```
+   
+Using the `./storygen` shortcut script provides the same functionality with a simpler command. You can also use it with parameters:
+```
+# Generate a specific story by ID
+./storygen --id 1
+
+# Generate multiple stories by ID
+./storygen --id 1,2,3
+```
 
 For thematic backgrounds, organize videos in theme subfolders:
 ```
@@ -206,6 +224,13 @@ assets/music/reflective/
 assets/music/energetic/
 assets/music/inspiring/
 ```
+
+The story generator includes several advanced features:
+- TikTok-safe margin positioning to ensure text is visible on mobile platforms
+- Intelligent paragraph-based text segmentation
+- Automatic combining of short paragraphs to maintain readability
+- Descriptive filename generation that includes story ID, title, theme, and more
+- Debug visualization options for text placement
 
 ## Configuration Files
 
@@ -252,6 +277,10 @@ All configuration settings are now centralized in `config.py`:
   - `heading_font_size`: Size of the title text (default: 70)
   - `body_font_size`: Size of the story text (default: 50)
   - `overlay_opacity`: Opacity of the dark overlay (default: 0.6)
+  - `use_paragraphs_as_segments`: Split story by paragraphs (default: True)
+  - `minimum_segment_length`: Minimum character length for segments (default: varies)
+  - `words_per_minute`: Reading speed for calculating segment duration (default: 180)
+  - `tiktok_margins`: Settings for TikTok-safe text placement
 
 ## API Integrations
 
@@ -288,6 +317,7 @@ To set up AI image and video generation:
   - `output/ugc/video_creation.log` - UGC generation logs
   - `output/ugc/video_list.txt` - List of generated UGC videos
   - `output/stories/story_creation.log` - Story generation logs
+  - `output/stories/story_tracking.csv` - Record of generated story videos
   - `output/ai_generated/logs/*` - AI content generation logs
 - Backups: If enabled during cleanup, archived content will be stored in `backups/archive_TIMESTAMP/`
 
@@ -299,6 +329,8 @@ To set up AI image and video generation:
 - If audio issues occur, check that ffmpeg is properly installed
 - AI-generated videos may be short but will be looped to match TTS duration
 - For story videos, keep stories concise for better readability
+- Organize background videos by theme for better story-background matching
+- Use the `./storygen` shortcut for quick generation of story videos
 
 ## License
 
