@@ -52,6 +52,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Font files
+assets/fonts/*
+
 # Video and audio files
 *.mp4
 *.mov

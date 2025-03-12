@@ -61,45 +61,48 @@ STORY_CONFIG = {
     "music_folder": "assets/music",
     "output_folder": "output/stories",
     
+    # Story selection settings
+    "story_selection": "all",  # Options: "random" (default) or "all"
+    
     # Font settings with separate title/body styling
     "title_font": "assets/fonts/BeVietnamPro-Bold.ttf",
     "body_font": "assets/fonts/BeVietnamPro-Medium.ttf",
     "font": "assets/fonts/BeVietnamPro-Medium.ttf",  # Kept for backwards compatibility
-    "heading_font_size": 80,
-    "body_font_size": 50,
+    "heading_font_size": 54,  # Slightly larger for more prominence
+    "body_font_size": 54,  # Slightly smaller for hierarchy
     
     # Color settings
     "title_color": "white",
-    "body_color": "white",
+    "body_color": "#EAEAEA",
     "text_color": "white",  # Kept for backwards compatibility
-    "overlay_color": "#ff2956",
-    "overlay_opacity": 0.6,
     
     # Text effect settings
     "text_effects": {
         "enabled": True,
         "title_shadow": True,
         "title_shadow_offset": 3,
-        "title_shadow_color": "#000000",
+        "title_shadow_color": "#ff2956",
         "body_shadow": True,
-        "body_shadow_offset": 2,
+        "body_shadow_offset": 3,
         "body_shadow_color": "#000000",
-        "body_stroke_width": 1,
+        "body_stroke_width": 2,
         "title_stroke_width": 2
     },
     
     # Overlay effect settings
     "overlay_effects": {
+        "global_opacity": 0.6,  # Master opacity control for all overlay effects
+        "solid_color": "#000000",  # Color to use when gradient is disabled
         "gradient": {
-            "enabled": True,  # Set to True to use gradient instead of solid color
+            "enabled": False,  # Set to True to use gradient instead of solid color
             "start_color": "#3a1c71",
             "end_color": "#ff2956",
-            "animation_speed": 0.5,  # Lower = slower animation
+            "animation_speed": 0.1,  # Lower = slower animation
             "animation_enabled": True  # Set to True to animate the gradient
         },
         "noise": {
             "enabled": True,
-            "opacity": 0.03
+            "opacity": 0.25
         }
     },
     
@@ -107,7 +110,7 @@ STORY_CONFIG = {
     "background_effects": {
         "zoom": {
             "enabled": True,
-            "factor": 1.08,  # How much to zoom by the end
+            "factor": 1.1,  # How much to zoom by the end
             "direction": "in"  # "in" or "out"
         }
     },
@@ -125,11 +128,12 @@ STORY_CONFIG = {
     "segment_position_y": None,  # Set to None to use automatic vertical centering
     "fade_duration": 0.2,  # Duration of fade in/out for segments
     "show_title_by_default": False,  # Whether to show title cards by default
+    "title_own_segment": False,  # If True, title appears on its own card; if False, title combines with first segment
     # TikTok safe margin settings (in pixels)
     "tiktok_margins": {
         "enabled": True,  # True = TikTok-specific safe margins for 1080 x 1920 videos, False = center text
-        "top": 252,      # Top margin 
-        "bottom": 640,   # Bottom margin 
+        "top": 292,      # Top margin 
+        "bottom": 500,   # Bottom margin (reduced from 600 for more space)
         "left": 120,      # Left margin 
         "right": 240,     # Right margin 
         "horizontal_text_margin": 240,  # Total horizontal margin (left + right)

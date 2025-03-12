@@ -263,6 +263,13 @@ def create_story_video(story_data, background_path, music_path, output_path):
         has_title = bool(story_data.get("title", "").strip())
         show_title = has_title and global_title_setting
     
+    # Check if title should be on its own segment
+    title_own_segment = STORY_CONFIG.get("title_own_segment", False)
+    
+    # If show_title is True but title_own_segment is False, we'll still show the title
+    # but combined with the first segment instead of on its own card
+    show_title_as_segment = show_title and title_own_segment
+    
     # Get TikTok margin settings if enabled
     tiktok_margins = STORY_CONFIG.get("tiktok_margins", {})
     use_tiktok_margins = tiktok_margins.get("enabled", False)
@@ -282,7 +289,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
     text_effects = STORY_CONFIG.get("text_effects", {})
     text_effects_enabled = text_effects.get("enabled", True)
     
-    if show_title and story_data.get("title", "").strip():
+    if show_title_as_segment and story_data.get("title", "").strip():
         # Get title duration from config
         title_duration = STORY_CONFIG.get("title_duration", 3.0)
         
@@ -291,13 +298,22 @@ def create_story_video(story_data, background_path, music_path, output_path):
         # Get title-specific styling
         title_color = STORY_CONFIG.get("title_color", STORY_CONFIG.get("text_color", "white"))
         title_font = STORY_CONFIG.get("title_font", STORY_CONFIG.get("font"))
-        title_fontsize = STORY_CONFIG.get("heading_font_size", 80)
+        title_fontsize = STORY_CONFIG.get("heading_font_size", 72)
         title_stroke_width = text_effects.get("title_stroke_width", 2)
         
         # Create title with or without shadow effects
         if text_effects_enabled and text_effects.get("title_shadow", True):
             shadow_color = text_effects.get("title_shadow_color", "#000000")
             shadow_offset = text_effects.get("title_shadow_offset", 3)
+            
+            # Add better line spacing for title text (only needed for multi-line titles)
+            if '\n' in story_data["title"]:
+                logging.info(f"Title contains multiple lines, adding increased line spacing")
+                # We can't directly control line height in TextClip, but we can add extra newlines
+                # and recombine with proper spacing
+                title_lines = story_data["title"].split('\n')
+                # Add extra spacing by padding each line
+                story_data["title"] = '\n\n'.join(title_lines)
             
             # Create title clip with shadow
             raw_title_clip = create_text_with_shadow(
@@ -311,6 +327,15 @@ def create_story_video(story_data, background_path, music_path, output_path):
                 stroke_width=title_stroke_width
             ).set_duration(title_duration)
         else:
+            # Add better line spacing for title text (only needed for multi-line titles)
+            if '\n' in story_data["title"]:
+                logging.info(f"Title contains multiple lines, adding increased line spacing")
+                # We can't directly control line height in TextClip, but we can add extra newlines
+                # and recombine with proper spacing
+                title_lines = story_data["title"].split('\n')
+                # Add extra spacing by padding each line
+                story_data["title"] = '\n\n'.join(title_lines)
+            
             # Create title clip without shadow effect
             raw_title_clip = TextClip(
                 txt=story_data["title"],
@@ -348,12 +373,37 @@ def create_story_video(story_data, background_path, music_path, output_path):
     # Break story into segments
     story_segments = segment_story(story_data["story_text"])
     
+    # Add title to the first segment if title exists and we're not using a separate title card
+    has_title = story_data.get("title", "").strip() != ""
+    if has_title and not title_own_segment and story_segments:
+        # We'll handle this title as part of the first segment, not as a separate title card
+        show_title_as_segment = False  # Disable separate title card
+        logging.info(f"Will display title with first segment (combined card)")
+    
     # Calculate duration for each segment based on content
-    segment_durations = [calculate_segment_duration(segment) for segment in story_segments]
+    segment_durations = []
+    
+    # Process each segment (including title if combined)
+    for i, segment in enumerate(story_segments):
+        # If this is the first segment and we need to add the title
+        if i == 0 and has_title and not title_own_segment:
+            # Combine the title with the first segment
+            title_text = story_data["title"]
+            # We're handling the title and content separately for styling purposes
+            # but they'll be displayed on the same card
+            segment_durations.append(calculate_segment_duration(title_text + " " + segment))
+            logging.info(f"Calculated combined duration for title+first segment: {segment_durations[-1]} seconds")
+        else:
+            segment_durations.append(calculate_segment_duration(segment))
+    
     total_needed_duration = sum(segment_durations)
     
     # Calculate the total video duration required
-    total_video_duration = title_duration + total_needed_duration
+    # If using separate title card, include title_duration
+    if show_title_as_segment:
+        total_video_duration = title_duration + total_needed_duration
+    else:
+        total_video_duration = total_needed_duration
     
     # Create a looped background video if needed
     if total_video_duration > background.duration:
@@ -371,11 +421,14 @@ def create_story_video(story_data, background_path, music_path, output_path):
     overlay_effects = STORY_CONFIG.get("overlay_effects", {})
     gradient_settings = overlay_effects.get("gradient", {})
     
+    # Get global opacity setting
+    global_opacity = overlay_effects.get("global_opacity", 0.6)
+    
     # Create base overlay
     if gradient_settings.get("enabled", False):
         # Use gradient overlay
         start_color = gradient_settings.get("start_color", "#3a1c71")
-        end_color = gradient_settings.get("end_color", STORY_CONFIG.get("overlay_color", "#ff2956"))
+        end_color = gradient_settings.get("end_color", "#ff2956")  # Default end color if not specified
         
         if gradient_settings.get("animation_enabled", False):
             # Animated gradient
@@ -386,25 +439,25 @@ def create_story_video(story_data, background_path, music_path, output_path):
                 start_color=start_color,
                 end_color=end_color,
                 animation_speed=animation_speed,
-                opacity=STORY_CONFIG.get("overlay_opacity", 0.6)
+                opacity=global_opacity
             )
             logging.info(f"Created animated gradient overlay from {start_color} to {end_color}")
         else:
             # Static gradient (use ColorClip with first color for simplicity)
             overlay_color = hex_to_rgb(start_color)
             overlay = ColorClip(TARGET_RESOLUTION, col=overlay_color)
-            overlay = overlay.set_opacity(STORY_CONFIG.get("overlay_opacity", 0.6))
-            overlay = overlay.set_duration(background.duration)
+            overlay = overlay.set_opacity(global_opacity)
+            overlay = overlay.set_duration(total_video_duration)
             logging.info(f"Created static color overlay with color {start_color}")
     else:
         # Use regular solid color overlay
-        overlay_color = STORY_CONFIG.get("overlay_color", "#000000")
+        overlay_color = overlay_effects.get("solid_color", "#000000")  # Use solid_color from config
         # Convert hex to RGB if it's a hex color
         overlay_color = hex_to_rgb(overlay_color)
         
         overlay = ColorClip(TARGET_RESOLUTION, col=overlay_color)
-        overlay = overlay.set_opacity(STORY_CONFIG.get("overlay_opacity", 0.6))
-        overlay = overlay.set_duration(background.duration)
+        overlay = overlay.set_opacity(global_opacity)
+        overlay = overlay.set_duration(total_video_duration)
         logging.info(f"Created solid color overlay with color {overlay_color}")
     
     # Combine background with overlay
@@ -413,10 +466,10 @@ def create_story_video(story_data, background_path, music_path, output_path):
     # Add noise effect if enabled
     noise_settings = overlay_effects.get("noise", {})
     if noise_settings.get("enabled", False):
-        noise_opacity = noise_settings.get("opacity", 0.03)
+        noise_opacity = noise_settings.get("opacity", 0.03) * global_opacity  # Scale noise opacity by global opacity
         noise_clip = create_noise_overlay(
             resolution=TARGET_RESOLUTION,
-            duration=background.duration,
+            duration=total_video_duration,
             opacity=noise_opacity
         )
         base_clips.append(noise_clip)
@@ -427,13 +480,22 @@ def create_story_video(story_data, background_path, music_path, output_path):
     
     # Create clip for each segment
     segment_clips = []
-    current_time = title_duration  # Start after title (or at 0 if no title)
+    current_time = 0
+    
+    # If we have a separate title card, set current_time to title_duration
+    if show_title_as_segment:
+        current_time = title_duration
     
     # Get body text styling
     body_color = STORY_CONFIG.get("body_color", STORY_CONFIG.get("text_color", "white"))
     body_font = STORY_CONFIG.get("body_font", STORY_CONFIG.get("font"))
-    body_fontsize = STORY_CONFIG.get("body_font_size", 50)
+    body_fontsize = STORY_CONFIG.get("body_font_size", 58)  # Use the value from config
     body_stroke_width = text_effects.get("body_stroke_width", 1)
+    
+    # Make sure title_fontsize is defined before using it
+    title_fontsize = STORY_CONFIG.get("heading_font_size", 72)  # Default title font size
+    
+    logging.info(f"Using title font size: {title_fontsize}pt, body font size: {body_fontsize}pt")
     
     # Process segments with proper positioning
     fade_duration = STORY_CONFIG.get("fade_duration", 0.5)
@@ -441,57 +503,279 @@ def create_story_video(story_data, background_path, music_path, output_path):
     for i, segment in enumerate(story_segments):
         segment_duration = segment_durations[i]
         
-        # Create body text with or without shadow effects
-        if text_effects_enabled and text_effects.get("body_shadow", True):
-            shadow_color = text_effects.get("body_shadow_color", "#000000")
-            shadow_offset = text_effects.get("body_shadow_offset", 2)
-            
-            # Create segment clip with shadow
-            raw_segment_clip = create_text_with_shadow(
-                text=segment,
-                fontsize=body_fontsize,
-                color=body_color,
-                font=body_font,
-                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
-                shadow_color=shadow_color,
-                shadow_offset=shadow_offset,
-                stroke_width=body_stroke_width
-            ).set_duration(segment_duration)
-        else:
-            # Create segment clip without shadow effect
-            raw_segment_clip = TextClip(
-                txt=segment,
-                fontsize=body_fontsize,
-                color=body_color,
-                font=body_font,
-                method='caption',
-                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
-                align='center',
-                stroke_color="black",
-                stroke_width=body_stroke_width
-            ).set_duration(segment_duration)
+        # Check if this is the first segment and we need to combine with title
+        is_combined_title_segment = (i == 0 and has_title and not title_own_segment)
         
-        # Position segment with TikTok-safe margins if enabled
-        if use_tiktok_margins:
-            segment_clip = position_text_in_tiktok_safe_area(
-                raw_segment_clip, 
-                tiktok_margins, 
-                TARGET_RESOLUTION,
-                position_factor=0.33  # Position text 1/3 into the safe area
-            )
-            logging.info(f"Positioned segment {i+1} with TikTok safe margins at position factor: 0.33")
+        # For the first segment that should include title, we need special handling
+        if is_combined_title_segment:
+            title_text = story_data["title"]
+            content_text = segment
+            
+            # Debug logs
+            logging.info(f"Creating combined title+content segment")
+            logging.info(f"Title: '{title_text}' [{len(title_text)} chars]")
+            logging.info(f"Content: '{content_text[:100]}...' [{len(content_text)} chars]")
+            
+            # Create title with title styling
+            title_color = STORY_CONFIG.get("title_color", STORY_CONFIG.get("text_color", "white"))
+            title_font = STORY_CONFIG.get("title_font", STORY_CONFIG.get("font"))
+            title_fontsize = STORY_CONFIG.get("heading_font_size", 72)
+            title_stroke_width = text_effects.get("title_stroke_width", 2)
+            
+            # Create title text with shadow if enabled
+            if text_effects_enabled and text_effects.get("title_shadow", True):
+                shadow_color = text_effects.get("title_shadow_color", "#000000")
+                shadow_offset = text_effects.get("title_shadow_offset", 3)
+                
+                # Add better line spacing for title text (only needed for multi-line titles)
+                if '\n' in title_text:
+                    logging.info(f"Title contains multiple lines, adding increased line spacing")
+                    # We can't directly control line height in TextClip, but we can add extra newlines
+                    # and recombine with proper spacing
+                    title_lines = title_text.split('\n')
+                    # Add extra spacing by padding each line
+                    title_text = '\n\n'.join(title_lines)
+                
+                title_text_clip = create_text_with_shadow(
+                    text=title_text,
+                    fontsize=title_fontsize,
+                    color=title_color,
+                    font=title_font,
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    shadow_color=shadow_color,
+                    shadow_offset=shadow_offset,
+                    stroke_width=title_stroke_width
+                )
+            else:
+                # Add better line spacing for title text (only needed for multi-line titles)
+                if '\n' in title_text:
+                    logging.info(f"Title contains multiple lines, adding increased line spacing")
+                    # We can't directly control line height in TextClip, but we can add extra newlines
+                    # and recombine with proper spacing
+                    title_lines = title_text.split('\n')
+                    # Add extra spacing by padding each line
+                    title_text = '\n\n'.join(title_lines)
+                
+                title_text_clip = TextClip(
+                    txt=title_text,
+                    fontsize=title_fontsize,
+                    color=title_color,
+                    font=title_font,
+                    method='caption',
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    align='center',
+                    stroke_color="black",
+                    stroke_width=title_stroke_width
+                )
+                
+            # Create body text with body styling
+            body_color = STORY_CONFIG.get("body_color", STORY_CONFIG.get("text_color", "white"))
+            body_font = STORY_CONFIG.get("body_font", STORY_CONFIG.get("font"))
+            body_fontsize = STORY_CONFIG.get("body_font_size", 58)  # Use the value from config
+            body_stroke_width = text_effects.get("body_stroke_width", 1)
+            
+            # Create content text with shadow if enabled
+            if text_effects_enabled and text_effects.get("body_shadow", True):
+                shadow_color = text_effects.get("body_shadow_color", "#000000")
+                shadow_offset = text_effects.get("body_shadow_offset", 2)
+                
+                content_text_clip = create_text_with_shadow(
+                    text=content_text,
+                    fontsize=body_fontsize,
+                    color=body_color,
+                    font=body_font,
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    shadow_color=shadow_color,
+                    shadow_offset=shadow_offset,
+                    stroke_width=body_stroke_width
+                )
+            else:
+                content_text_clip = TextClip(
+                    txt=content_text,
+                    fontsize=body_fontsize,
+                    color=body_color,
+                    font=body_font,
+                    method='caption',
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    align='center',
+                    stroke_color="black",
+                    stroke_width=body_stroke_width
+                )
+            
+            # Get title and content clip dimensions for positioning
+            title_height = title_text_clip.h
+            content_height = content_text_clip.h
+            
+            # Position title and content independently in the safe area
+            # This prevents positioning issues caused by dynamic heights
+            
+            if use_tiktok_margins:
+                safe_top = tiktok_margins.get("top", 252)
+                safe_bottom = TARGET_RESOLUTION[1] - tiktok_margins.get("bottom", 640)
+                safe_height = safe_bottom - safe_top
+                
+                # Title positioned in the top x% of safe area
+                title_pos_factor = 0.05  # from the top of safe area  
+                
+                # Content positioned closer to middle (x% from top of safe area)
+                # This creates a fixed, reliable space between them regardless of content
+                content_pos_factor = 0.4  # Fixed content position
+                
+                logging.info(f"Using independent positioning: title at {title_pos_factor*100}%, content at {content_pos_factor*100}% of safe area")
+                
+                # We still calculate the total height for font size adjustments
+                shadow_offset = text_effects.get("title_shadow_offset", 3)
+                content_spacing = max(100, int(title_fontsize * 1.2))  # For height calculation only
+                total_height = title_height + content_spacing + content_height + shadow_offset
+                
+                # If text is too tall to fit in safe zone, reduce content font size
+                max_allowed_height = safe_height * 1.0  # Allow 100% of safe height (was 0.95)
+                
+                if total_height > max_allowed_height:
+                    # Content text is too tall, needs font size reduction
+                    original_fontsize = body_fontsize
+                    
+                    # Calculate a gentler reduction - use square root to make reduction less severe
+                    reduction_factor = max(0.8, 1.0 - (0.5 * (total_height - max_allowed_height) / max_allowed_height))
+                    
+                    # Apply reduction with a higher minimum
+                    adjusted_fontsize = max(int(body_fontsize * reduction_factor), 45)  # Minimum 45pt now (was 24)
+                    
+                    logging.info(f"Content too tall ({total_height}px vs {max_allowed_height}px allowed), reducing font size from {body_fontsize} to {adjusted_fontsize} (reduction factor: {reduction_factor:.2f})")
+                    
+                    # Recreate content text with reduced font size
+                    if text_effects_enabled and text_effects.get("body_shadow", True):
+                        shadow_color = text_effects.get("body_shadow_color", "#000000")
+                        shadow_offset = text_effects.get("body_shadow_offset", 2)
+                        
+                        content_text_clip = create_text_with_shadow(
+                            text=content_text,
+                            fontsize=adjusted_fontsize,  # Reduced font size
+                            color=body_color,
+                            font=body_font,
+                            size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                            shadow_color=shadow_color,
+                            shadow_offset=shadow_offset,
+                            stroke_width=body_stroke_width
+                        )
+                    else:
+                        content_text_clip = TextClip(
+                            txt=content_text,
+                            fontsize=adjusted_fontsize,  # Reduced font size
+                            color=body_color,
+                            font=body_font,
+                            method='caption',
+                            size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                            align='center',
+                            stroke_color="black",
+                            stroke_width=body_stroke_width
+                        )
+                    
+                    # Update content height
+                    content_height = content_text_clip.h
+                    total_height = title_height + content_spacing + content_height + shadow_offset
+                    logging.info(f"After font reduction, content height: {content_height}px, total height: {total_height}px")
+                
+                # Use the proper TikTok safe area positioning function instead of manual positioning
+                # This ensures both vertical and horizontal margins are respected
+                positioned_title_clip = position_text_in_tiktok_safe_area(
+                    title_text_clip, 
+                    tiktok_margins, 
+                    TARGET_RESOLUTION, 
+                    position_factor=title_pos_factor
+                )
+                
+                # For content, we'll use our fixed position factor
+                positioned_content_clip = position_text_in_tiktok_safe_area(
+                    content_text_clip, 
+                    tiktok_margins, 
+                    TARGET_RESOLUTION, 
+                    position_factor=content_pos_factor
+                )
+                
+                logging.info(f"Applied TikTok margin positioning with title factor: {title_pos_factor}, content factor: {content_pos_factor}")
+            else:
+                # Position with fixed values if not using TikTok margins
+                title_y = 350
+                content_y = 600  # Fixed position with good separation from title
+                
+                # Create clips with proper positions
+                positioned_title_clip = title_text_clip.set_position(("center", title_y))
+                positioned_content_clip = content_text_clip.set_position(("center", content_y))
+                
+                logging.info(f"Using fixed positioning: title Y at {title_y}px, content Y at {content_y}px")
+            
+            # Combine the clips and set duration
+            combined_clip = CompositeVideoClip([
+                positioned_title_clip,
+                positioned_content_clip
+            ], size=TARGET_RESOLUTION).set_duration(segment_duration)
+            
+            # Debug the composite clip
+            logging.info(f"Created composite clip with title and content, duration: {segment_duration}s")
+            
+            # Add fade effects
+            segment_clip = combined_clip.crossfadein(fade_duration).crossfadeout(fade_duration)
         else:
-            segment_position_y = STORY_CONFIG.get("segment_position_y", 800)
-            if segment_position_y is None:
-                segment_position_y = 800
-            segment_clip = raw_segment_clip.set_position(("center", segment_position_y))
-            logging.info(f"Using standard segment position y: {segment_position_y}px")
+            # Standard segment - create body text with or without shadow effects
+            if text_effects_enabled and text_effects.get("body_shadow", True):
+                shadow_color = text_effects.get("body_shadow_color", "#000000")
+                shadow_offset = text_effects.get("body_shadow_offset", 2)
+                
+                # Use the original font size from config without reduction
+                segment_fontsize = STORY_CONFIG.get("body_font_size", 58)
+                
+                # Create segment clip with shadow
+                raw_segment_clip = create_text_with_shadow(
+                    text=segment,
+                    fontsize=segment_fontsize,
+                    color=body_color,
+                    font=body_font,
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    shadow_color=shadow_color,
+                    shadow_offset=shadow_offset,
+                    stroke_width=body_stroke_width
+                ).set_duration(segment_duration)
+            else:
+                # Use the original font size from config without reduction
+                segment_fontsize = STORY_CONFIG.get("body_font_size", 58)
+                
+                # Create segment clip without shadow effect
+                raw_segment_clip = TextClip(
+                    txt=segment,
+                    fontsize=segment_fontsize,
+                    color=body_color,
+                    font=body_font,
+                    method='caption',
+                    size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                    align='center',
+                    stroke_color="black",
+                    stroke_width=body_stroke_width
+                ).set_duration(segment_duration)
+            
+            # Position segment with TikTok-safe margins if enabled
+            if use_tiktok_margins:
+                # Use a position factor that's different from the combined title+content segment
+                # to ensure consistent positioning between all segments
+                segment_pos_factor = 0.33  # Position text 1/3 into the safe area
+                segment_clip = position_text_in_tiktok_safe_area(
+                    raw_segment_clip, 
+                    tiktok_margins, 
+                    TARGET_RESOLUTION,
+                    position_factor=segment_pos_factor
+                )
+                logging.info(f"Positioned segment {i+1} with TikTok safe margins at position factor: {segment_pos_factor}")
+            else:
+                segment_position_y = STORY_CONFIG.get("segment_position_y", 800)
+                if segment_position_y is None:
+                    segment_position_y = 800
+                segment_clip = raw_segment_clip.set_position(("center", segment_position_y))
+                logging.info(f"Using standard segment position y: {segment_position_y}px")
+            
+            # Add fade in/out effects
+            segment_clip = segment_clip.crossfadein(fade_duration).crossfadeout(fade_duration)
         
         segment_clip = segment_clip.set_start(current_time)
-        
-        # Add fade in/out effects
-        segment_clip = segment_clip.crossfadein(fade_duration).crossfadeout(fade_duration)
-        
         segment_clips.append(segment_clip)
         current_time += segment_duration
     
@@ -521,6 +805,11 @@ def create_story_video(story_data, background_path, music_path, output_path):
     
     # Add music to video
     final_video = final_video.set_audio(music)
+    
+    # After music is added, ensure final video duration is exactly total_video_duration
+    if final_video.duration > total_video_duration:
+        logging.info(f"Trimming final video from {final_video.duration}s to exact duration of {total_video_duration}s")
+        final_video = final_video.subclip(0, total_video_duration)
     
     # Write the final video
     final_video.write_videofile(
@@ -647,31 +936,43 @@ def create_text_with_shadow(text, fontsize, color, font, size, alignment='center
         stroke_width=stroke_width
     )
     
-    # Combine shadow and text
-    final_text = CompositeVideoClip([shadow, txt_clip], size=size)
+    # Combine shadow and text - don't specify size (let it be determined automatically)
+    final_text = CompositeVideoClip([shadow, txt_clip])
     return final_text
 
 def create_animated_gradient_overlay(duration, resolution, start_color, end_color, animation_speed=0.5, opacity=0.6):
-    """Create an animated gradient overlay between two colors"""
+    """Create an animated gradient overlay with a linear gradient that moves across the screen"""
     # Convert hex colors to RGB if needed
     start_color = hex_to_rgb(start_color)
     end_color = hex_to_rgb(end_color)
     
-    # Create a function that returns the gradient color at time t
+    # Create a function that returns the gradient frame at time t
     def make_gradient_frame(t):
-        # Use sine wave to oscillate between colors for smooth looping
-        oscillation = (np.sin(t * animation_speed * np.pi) + 1) / 2
+        # Create frame canvas
+        frame = np.zeros((resolution[1], resolution[0], 3), dtype=np.uint8)
         
-        # Interpolate between colors
-        r = int(start_color[0] * (1-oscillation) + end_color[0] * oscillation)
-        g = int(start_color[1] * (1-oscillation) + end_color[1] * oscillation)
-        b = int(start_color[2] * (1-oscillation) + end_color[2] * oscillation)
+        # Animate gradient direction using sine wave for smooth looping
+        angle = 2 * np.pi * (t * animation_speed % 1.0)
         
-        # Create solid color frame
-        frame = np.ones((resolution[1], resolution[0], 3), dtype=np.uint8)
-        frame[:,:,0] = r
-        frame[:,:,1] = g
-        frame[:,:,2] = b
+        # Calculate direction vector for gradient
+        dx = np.cos(angle)
+        dy = np.sin(angle)
+        
+        # Create coordinate grids
+        y, x = np.mgrid[0:resolution[1], 0:resolution[0]]
+        
+        # Normalize coordinates to [-1, 1] range
+        x_norm = 2 * x / resolution[0] - 1
+        y_norm = 2 * y / resolution[1] - 1
+        
+        # Calculate gradient value for each pixel (dot product with direction)
+        gradient = (x_norm * dx + y_norm * dy + 1) / 2  # Normalize to [0, 1]
+        gradient = np.clip(gradient, 0, 1)
+        
+        # Apply gradient to each color channel
+        for c in range(3):
+            frame[:, :, c] = (start_color[c] * (1 - gradient) + end_color[c] * gradient).astype(np.uint8)
+        
         return frame
     
     # Create a clip with the gradient animation
@@ -716,6 +1017,7 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Generate story videos')
     parser.add_argument('--id', type=str, help='Specific story ID to generate. Can provide multiple IDs separated by commas.')
+    parser.add_argument('--all', action='store_true', help='Generate videos for all stories in the CSV file')
     args = parser.parse_args()
     
     # Set up logging
@@ -731,9 +1033,15 @@ def main():
         logging.error(f"No stories found in {STORY_CONFIG['stories_file']}")
         return
     
+    # Priority for story selection:
+    # 1. Command line --id parameter (explicit selection)
+    # 2. Command line --all parameter (generate all)
+    # 3. Config setting (all or random)
+    
     # Filter stories by ID if specified
     stories_to_generate = []
     if args.id:
+        # Explicit ID selection via command line has highest priority
         requested_ids = [id.strip() for id in args.id.split(',')]
         for story in stories:
             if story.get('id') in requested_ids:
@@ -741,9 +1049,20 @@ def main():
         if not stories_to_generate:
             logging.error(f"No stories found with requested IDs: {args.id}")
             return
+    elif args.all:
+        # Generate all stories from command line flag
+        stories_to_generate = stories
+        logging.info(f"Generating videos for all {len(stories)} stories from command line flag")
     else:
-        # Get a random story if no ID specified
-        stories_to_generate = [random.choice(stories)]
+        # Use the config setting
+        story_selection = STORY_CONFIG.get("story_selection", "random")
+        if story_selection.lower() == "all":
+            stories_to_generate = stories
+            logging.info(f"Generating videos for all {len(stories)} stories based on config setting")
+        else:
+            # Default to random selection (one story)
+            stories_to_generate = [random.choice(stories)]
+            logging.info("Generating video for one random story based on config setting")
     
     # Generate each requested story
     for story in stories_to_generate:
