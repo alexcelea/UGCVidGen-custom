@@ -9,6 +9,15 @@ import random
 from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
 import numpy as np
 
+def hex_to_rgb(hex_color):
+    """Convert hex color to RGB tuple"""
+    if isinstance(hex_color, str) and hex_color.startswith('#'):
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        return (r, g, b)
+    return hex_color  # Return unchanged if not a hex color
+
 def setup_directories(directories):
     """Create multiple directories if they don't exist"""
     for directory in directories:

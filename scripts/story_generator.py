@@ -8,16 +8,18 @@ import sys
 import logging
 import random
 from datetime import datetime
-from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, ColorClip
+from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, ColorClip, concatenate_videoclips
 import argparse
 import csv
 import re
+import numpy as np
+from functools import partial
 
 # Add the parent directory to the path to allow importing from the root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config import STORY_CONFIG, TARGET_RESOLUTION
-from scripts.utils import setup_directories, load_csv, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area
+from scripts.utils import setup_directories, load_csv, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area, hex_to_rgb
 
 # Project name for filenames
 PROJECT_NAME = "StoryGen"
@@ -240,6 +242,16 @@ def create_story_video(story_data, background_path, music_path, output_path):
     background = VideoFileClip(background_path)
     background = resize_video(background, TARGET_RESOLUTION)
     
+    # Apply zoom effect to background if enabled
+    background_effects = STORY_CONFIG.get("background_effects", {})
+    zoom_settings = background_effects.get("zoom", {})
+    
+    if zoom_settings.get("enabled", False):
+        zoom_factor = zoom_settings.get("factor", 1.05)
+        zoom_direction = zoom_settings.get("direction", "in")
+        logging.info(f"Applying {zoom_direction} zoom effect with factor {zoom_factor}")
+        background = add_zoom_effect(background, zoom_factor, zoom_direction)
+    
     # Determine if we should show the title
     # Priority: 1. show_title flag if present, 2. check if title exists and isn't empty
     if "show_title" in story_data:
@@ -266,30 +278,57 @@ def create_story_video(story_data, background_path, music_path, output_path):
     title_clip = None
     title_duration = 0
     
+    # Get text effect settings
+    text_effects = STORY_CONFIG.get("text_effects", {})
+    text_effects_enabled = text_effects.get("enabled", True)
+    
     if show_title and story_data.get("title", "").strip():
         # Get title duration from config
         title_duration = STORY_CONFIG.get("title_duration", 3.0)
         
         logging.info(f"Title width will be: {TARGET_RESOLUTION[0] - horizontal_margin}px (with {horizontal_margin}px margin)")
         
-        # Create title clip
-        title_clip = TextClip(
-            txt=story_data["title"],
-            fontsize=STORY_CONFIG["heading_font_size"],
-            color=STORY_CONFIG["text_color"],
-            font=STORY_CONFIG["font"],
-            method='caption',
-            size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
-            align='center',
-            stroke_color="black",
-            stroke_width=2
-        ).set_duration(title_duration)
+        # Get title-specific styling
+        title_color = STORY_CONFIG.get("title_color", STORY_CONFIG.get("text_color", "white"))
+        title_font = STORY_CONFIG.get("title_font", STORY_CONFIG.get("font"))
+        title_fontsize = STORY_CONFIG.get("heading_font_size", 80)
+        title_stroke_width = text_effects.get("title_stroke_width", 2)
+        
+        # Create title with or without shadow effects
+        if text_effects_enabled and text_effects.get("title_shadow", True):
+            shadow_color = text_effects.get("title_shadow_color", "#000000")
+            shadow_offset = text_effects.get("title_shadow_offset", 3)
+            
+            # Create title clip with shadow
+            raw_title_clip = create_text_with_shadow(
+                text=story_data["title"],
+                fontsize=title_fontsize,
+                color=title_color,
+                font=title_font,
+                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                shadow_color=shadow_color,
+                shadow_offset=shadow_offset,
+                stroke_width=title_stroke_width
+            ).set_duration(title_duration)
+        else:
+            # Create title clip without shadow effect
+            raw_title_clip = TextClip(
+                txt=story_data["title"],
+                fontsize=title_fontsize,
+                color=title_color,
+                font=title_font,
+                method='caption',
+                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                align='center',
+                stroke_color="black",
+                stroke_width=title_stroke_width
+            ).set_duration(title_duration)
         
         # Set title position from config with TikTok-safe margins if enabled
         if use_tiktok_margins:
             # Position title near the top of the safe area (approximately 20% into safe area)
             title_clip = position_text_in_tiktok_safe_area(
-                title_clip, 
+                raw_title_clip, 
                 tiktok_margins, 
                 TARGET_RESOLUTION, 
                 position_factor=0.15  # Position title 15% into the safe area
@@ -300,7 +339,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
             if title_position_y is None:
                 title_position_y = 350
             logging.info(f"Using standard title position y: {title_position_y}px")
-            title_clip = title_clip.set_position(("center", title_position_y))
+            title_clip = raw_title_clip.set_position(("center", title_position_y))
         
         # Add fade in/out effects to title
         fade_duration = STORY_CONFIG.get("fade_duration", 0.5)
@@ -318,7 +357,6 @@ def create_story_video(story_data, background_path, music_path, output_path):
     
     # Create a looped background video if needed
     if total_video_duration > background.duration:
-        from moviepy.editor import concatenate_videoclips
         # Calculate how many loops we need
         loops_needed = int(total_video_duration / background.duration) + 1
         background_loops = [background] * loops_needed
@@ -329,17 +367,73 @@ def create_story_video(story_data, background_path, music_path, output_path):
         # If background is already long enough, just trim it to what we need
         background = background.subclip(0, total_video_duration)
     
-    # Create a dark overlay for better text contrast
-    overlay = ColorClip(TARGET_RESOLUTION, col=(0, 0, 0))
-    overlay = overlay.set_opacity(STORY_CONFIG["overlay_opacity"])
-    overlay = overlay.set_duration(background.duration)
+    # Create overlay based on settings (solid color, gradient, or animated)
+    overlay_effects = STORY_CONFIG.get("overlay_effects", {})
+    gradient_settings = overlay_effects.get("gradient", {})
+    
+    # Create base overlay
+    if gradient_settings.get("enabled", False):
+        # Use gradient overlay
+        start_color = gradient_settings.get("start_color", "#3a1c71")
+        end_color = gradient_settings.get("end_color", STORY_CONFIG.get("overlay_color", "#ff2956"))
+        
+        if gradient_settings.get("animation_enabled", False):
+            # Animated gradient
+            animation_speed = gradient_settings.get("animation_speed", 0.5)
+            overlay = create_animated_gradient_overlay(
+                duration=background.duration,
+                resolution=TARGET_RESOLUTION,
+                start_color=start_color,
+                end_color=end_color,
+                animation_speed=animation_speed,
+                opacity=STORY_CONFIG.get("overlay_opacity", 0.6)
+            )
+            logging.info(f"Created animated gradient overlay from {start_color} to {end_color}")
+        else:
+            # Static gradient (use ColorClip with first color for simplicity)
+            overlay_color = hex_to_rgb(start_color)
+            overlay = ColorClip(TARGET_RESOLUTION, col=overlay_color)
+            overlay = overlay.set_opacity(STORY_CONFIG.get("overlay_opacity", 0.6))
+            overlay = overlay.set_duration(background.duration)
+            logging.info(f"Created static color overlay with color {start_color}")
+    else:
+        # Use regular solid color overlay
+        overlay_color = STORY_CONFIG.get("overlay_color", "#000000")
+        # Convert hex to RGB if it's a hex color
+        overlay_color = hex_to_rgb(overlay_color)
+        
+        overlay = ColorClip(TARGET_RESOLUTION, col=overlay_color)
+        overlay = overlay.set_opacity(STORY_CONFIG.get("overlay_opacity", 0.6))
+        overlay = overlay.set_duration(background.duration)
+        logging.info(f"Created solid color overlay with color {overlay_color}")
     
     # Combine background with overlay
-    base = CompositeVideoClip([background, overlay])
+    base_clips = [background, overlay]
+    
+    # Add noise effect if enabled
+    noise_settings = overlay_effects.get("noise", {})
+    if noise_settings.get("enabled", False):
+        noise_opacity = noise_settings.get("opacity", 0.03)
+        noise_clip = create_noise_overlay(
+            resolution=TARGET_RESOLUTION,
+            duration=background.duration,
+            opacity=noise_opacity
+        )
+        base_clips.append(noise_clip)
+        logging.info(f"Added noise effect with opacity {noise_opacity}")
+    
+    # Combine background with overlay(s)
+    base = CompositeVideoClip(base_clips)
     
     # Create clip for each segment
     segment_clips = []
     current_time = title_duration  # Start after title (or at 0 if no title)
+    
+    # Get body text styling
+    body_color = STORY_CONFIG.get("body_color", STORY_CONFIG.get("text_color", "white"))
+    body_font = STORY_CONFIG.get("body_font", STORY_CONFIG.get("font"))
+    body_fontsize = STORY_CONFIG.get("body_font_size", 50)
+    body_stroke_width = text_effects.get("body_stroke_width", 1)
     
     # Process segments with proper positioning
     fade_duration = STORY_CONFIG.get("fade_duration", 0.5)
@@ -347,22 +441,40 @@ def create_story_video(story_data, background_path, music_path, output_path):
     for i, segment in enumerate(story_segments):
         segment_duration = segment_durations[i]
         
-        segment_clip = TextClip(
-            txt=segment,
-            fontsize=STORY_CONFIG["body_font_size"],
-            color=STORY_CONFIG["text_color"],
-            font=STORY_CONFIG["font"],
-            method='caption',
-            size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
-            align='center',
-            stroke_color="black",
-            stroke_width=1
-        ).set_duration(segment_duration)
+        # Create body text with or without shadow effects
+        if text_effects_enabled and text_effects.get("body_shadow", True):
+            shadow_color = text_effects.get("body_shadow_color", "#000000")
+            shadow_offset = text_effects.get("body_shadow_offset", 2)
+            
+            # Create segment clip with shadow
+            raw_segment_clip = create_text_with_shadow(
+                text=segment,
+                fontsize=body_fontsize,
+                color=body_color,
+                font=body_font,
+                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                shadow_color=shadow_color,
+                shadow_offset=shadow_offset,
+                stroke_width=body_stroke_width
+            ).set_duration(segment_duration)
+        else:
+            # Create segment clip without shadow effect
+            raw_segment_clip = TextClip(
+                txt=segment,
+                fontsize=body_fontsize,
+                color=body_color,
+                font=body_font,
+                method='caption',
+                size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
+                align='center',
+                stroke_color="black",
+                stroke_width=body_stroke_width
+            ).set_duration(segment_duration)
         
         # Position segment with TikTok-safe margins if enabled
         if use_tiktok_margins:
             segment_clip = position_text_in_tiktok_safe_area(
-                segment_clip, 
+                raw_segment_clip, 
                 tiktok_margins, 
                 TARGET_RESOLUTION,
                 position_factor=0.33  # Position text 1/3 into the safe area
@@ -372,7 +484,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
             segment_position_y = STORY_CONFIG.get("segment_position_y", 800)
             if segment_position_y is None:
                 segment_position_y = 800
-            segment_clip = segment_clip.set_position(("center", segment_position_y))
+            segment_clip = raw_segment_clip.set_position(("center", segment_position_y))
             logging.info(f"Using standard segment position y: {segment_position_y}px")
         
         segment_clip = segment_clip.set_start(current_time)
@@ -400,7 +512,6 @@ def create_story_video(story_data, background_path, music_path, output_path):
     music = AudioFileClip(music_path)
     if music.duration < final_video.duration:
         # Loop music to match video duration
-        from moviepy.editor import concatenate_audioclips
         loops_needed = int(final_video.duration / music.duration) + 1
         music_list = [music] * loops_needed
         music = concatenate_audioclips(music_list)
@@ -504,6 +615,102 @@ def create_descriptive_filename(story_data, background_path, music_path):
     
     return filename
 
+def create_text_with_shadow(text, fontsize, color, font, size, alignment='center', 
+                           shadow_color="#000000", shadow_offset=2, stroke_width=1):
+    """Create text with shadow effect for better visibility"""
+    # Create the shadow text clip
+    shadow = TextClip(
+        txt=text,
+        fontsize=fontsize,
+        color=shadow_color,
+        font=font,
+        method='caption',
+        size=size,
+        align=alignment,
+        stroke_color="black",
+        stroke_width=stroke_width
+    )
+    
+    # Position the shadow slightly offset
+    shadow = shadow.set_position((shadow_offset, shadow_offset))
+    
+    # Create the main text clip
+    txt_clip = TextClip(
+        txt=text,
+        fontsize=fontsize,
+        color=color,
+        font=font,
+        method='caption',
+        size=size,
+        align=alignment,
+        stroke_color="black",
+        stroke_width=stroke_width
+    )
+    
+    # Combine shadow and text
+    final_text = CompositeVideoClip([shadow, txt_clip], size=size)
+    return final_text
+
+def create_animated_gradient_overlay(duration, resolution, start_color, end_color, animation_speed=0.5, opacity=0.6):
+    """Create an animated gradient overlay between two colors"""
+    # Convert hex colors to RGB if needed
+    start_color = hex_to_rgb(start_color)
+    end_color = hex_to_rgb(end_color)
+    
+    # Create a function that returns the gradient color at time t
+    def make_gradient_frame(t):
+        # Use sine wave to oscillate between colors for smooth looping
+        oscillation = (np.sin(t * animation_speed * np.pi) + 1) / 2
+        
+        # Interpolate between colors
+        r = int(start_color[0] * (1-oscillation) + end_color[0] * oscillation)
+        g = int(start_color[1] * (1-oscillation) + end_color[1] * oscillation)
+        b = int(start_color[2] * (1-oscillation) + end_color[2] * oscillation)
+        
+        # Create solid color frame
+        frame = np.ones((resolution[1], resolution[0], 3), dtype=np.uint8)
+        frame[:,:,0] = r
+        frame[:,:,1] = g
+        frame[:,:,2] = b
+        return frame
+    
+    # Create a clip with the gradient animation
+    from moviepy.editor import VideoClip
+    gradient_clip = VideoClip(make_frame=make_gradient_frame, duration=duration)
+    gradient_clip = gradient_clip.set_opacity(opacity)
+    
+    return gradient_clip
+
+def create_noise_overlay(resolution, duration, opacity=0.05):
+    """Create a subtle noise texture overlay for film grain effect"""
+    # Create a function that returns random noise for each frame
+    def make_noise_frame(t):
+        noise = np.random.randint(0, 256, (resolution[1], resolution[0], 3), dtype=np.uint8)
+        return noise
+    
+    # Create a clip with the noise animation
+    from moviepy.editor import VideoClip
+    noise_clip = VideoClip(make_frame=make_noise_frame, duration=duration)
+    noise_clip = noise_clip.set_opacity(opacity)
+    
+    return noise_clip
+
+def add_zoom_effect(clip, zoom_factor=1.05, direction="in"):
+    """Add subtle zoom in/out effect to a video clip"""
+    def scale_func(t):
+        progress = t / clip.duration
+        
+        if direction == "in":
+            # Start at 1.0 and increase to zoom_factor
+            scale = 1 + (zoom_factor - 1) * progress
+        else:  # zoom out
+            # Start at zoom_factor and decrease to 1.0
+            scale = zoom_factor - (zoom_factor - 1) * progress
+            
+        return scale
+    
+    return clip.resize(lambda t: scale_func(t))
+
 def main():
     """Main entry point for story video generator"""
     # Parse command line arguments
@@ -544,17 +751,58 @@ def main():
         
         # Check if background theme folder exists
         theme = story.get("background_theme", "").lower()
-        theme_dir = os.path.join(STORY_CONFIG["background_videos_folder"], theme)
+        
+        # Make theme directory-friendly by replacing spaces with underscores and removing special chars
+        theme_dir_name = re.sub(r'[^\w\s-]', '', theme).replace(' ', '_')
+        
+        # Original theme directory (for backward compatibility)
+        original_theme_dir = os.path.join(STORY_CONFIG["background_videos_folder"], theme)
+        
+        # Directory-friendly theme directory
+        folder_friendly_theme_dir = os.path.join(STORY_CONFIG["background_videos_folder"], theme_dir_name)
+        
+        logging.info(f"Looking for background theme: '{theme}' in folders:")
+        logging.info(f"  - {original_theme_dir}")
+        logging.info(f"  - {folder_friendly_theme_dir}")
         
         # Get a background video based on theme if possible
-        if os.path.exists(theme_dir) and os.path.isdir(theme_dir):
-            background_path = get_random_file(theme_dir, ['.mp4', '.mov'])
-            if not background_path:
+        # First try the directory-friendly name
+        if os.path.exists(folder_friendly_theme_dir) and os.path.isdir(folder_friendly_theme_dir):
+            background_path = get_random_file(folder_friendly_theme_dir, ['.mp4', '.mov'])
+            if background_path:
+                logging.info(f"Found background video in directory-friendly theme folder: {folder_friendly_theme_dir}")
+            else:
+                # Try the original theme name for backward compatibility
+                if os.path.exists(original_theme_dir) and os.path.isdir(original_theme_dir):
+                    background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                    if background_path:
+                        logging.info(f"Found background video in original theme folder: {original_theme_dir}")
+                    else:
+                        # Fallback to main backgrounds directory
+                        background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                        if background_path:
+                            logging.info(f"Fallback: Found background video in main backgrounds folder")
+                else:
+                    # Fallback to main backgrounds directory
+                    background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                    if background_path:
+                        logging.info(f"Fallback: Found background video in main backgrounds folder")
+        else:
+            # Try the original theme name
+            if os.path.exists(original_theme_dir) and os.path.isdir(original_theme_dir):
+                background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                if background_path:
+                    logging.info(f"Found background video in original theme folder: {original_theme_dir}")
+                else:
+                    # Fallback to main backgrounds directory
+                    background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                    if background_path:
+                        logging.info(f"Fallback: Found background video in main backgrounds folder")
+            else:
                 # Fallback to main backgrounds directory
                 background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
-        else:
-            # Use main backgrounds directory
-            background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                if background_path:
+                    logging.info(f"Fallback: Found background video in main backgrounds folder")
         
         if not background_path:
             logging.error("No background videos found. Please add videos to the backgrounds directory.")
@@ -562,17 +810,58 @@ def main():
         
         # Check if music mood folder exists
         mood = story.get("music_mood", "").lower()
-        mood_dir = os.path.join(STORY_CONFIG["music_folder"], mood)
+        
+        # Make mood directory-friendly by replacing spaces with underscores and removing special chars
+        mood_dir_name = re.sub(r'[^\w\s-]', '', mood).replace(' ', '_')
+        
+        # Original mood directory (for backward compatibility)
+        original_mood_dir = os.path.join(STORY_CONFIG["music_folder"], mood)
+        
+        # Directory-friendly mood directory
+        folder_friendly_mood_dir = os.path.join(STORY_CONFIG["music_folder"], mood_dir_name)
+        
+        logging.info(f"Looking for music mood: '{mood}' in folders:")
+        logging.info(f"  - {original_mood_dir}")
+        logging.info(f"  - {folder_friendly_mood_dir}")
         
         # Get music based on mood if possible
-        if os.path.exists(mood_dir) and os.path.isdir(mood_dir):
-            music_path = get_random_file(mood_dir, ['.mp3', '.wav', '.m4a'])
-            if not music_path:
+        # First try the directory-friendly name
+        if os.path.exists(folder_friendly_mood_dir) and os.path.isdir(folder_friendly_mood_dir):
+            music_path = get_random_file(folder_friendly_mood_dir, ['.mp3', '.wav', '.m4a'])
+            if music_path:
+                logging.info(f"Found music in directory-friendly mood folder: {folder_friendly_mood_dir}")
+            else:
+                # Try the original mood name for backward compatibility
+                if os.path.exists(original_mood_dir) and os.path.isdir(original_mood_dir):
+                    music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                    if music_path:
+                        logging.info(f"Found music in original mood folder: {original_mood_dir}")
+                    else:
+                        # Fallback to main music directory
+                        music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                        if music_path:
+                            logging.info(f"Fallback: Found music in main music folder")
+                else:
+                    # Fallback to main music directory
+                    music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                    if music_path:
+                        logging.info(f"Fallback: Found music in main music folder")
+        else:
+            # Try the original mood name
+            if os.path.exists(original_mood_dir) and os.path.isdir(original_mood_dir):
+                music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                if music_path:
+                    logging.info(f"Found music in original mood folder: {original_mood_dir}")
+                else:
+                    # Fallback to main music directory
+                    music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                    if music_path:
+                        logging.info(f"Fallback: Found music in main music folder")
+            else:
                 # Fallback to main music directory
                 music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
-        else:
-            # Use main music directory
-            music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                if music_path:
+                    logging.info(f"Fallback: Found music in main music folder")
         
         if not music_path:
             logging.error("No music files found. Please add music to the music directory.")
