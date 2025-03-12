@@ -39,6 +39,13 @@ output/ai_generated/videos/*
 output/ai_generated/logs/*
 !output/ai_generated/logs/.gitkeep
 
+
+# content
+content/*.csv
+
+# Ignore all CSV files everywhere
+*.csv
+
 # Content backup
 backups/
 
@@ -70,3 +77,4 @@ assets/fonts/*
 *.ogg
 *.flac
 *.m4b
+

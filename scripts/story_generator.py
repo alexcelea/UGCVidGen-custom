@@ -24,6 +24,22 @@ from scripts.utils import setup_directories, load_csv, resize_video, get_random_
 # Project name for filenames
 PROJECT_NAME = "StoryGen"
 
+def has_story_been_generated(story_id, tracking_file):
+    """Check if a story with given ID has already been generated"""
+    if not os.path.exists(tracking_file) or os.path.getsize(tracking_file) == 0:
+        return False
+    
+    try:
+        with open(tracking_file, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('story_id') == str(story_id):
+                    return True
+    except Exception as e:
+        logging.warning(f"Error checking tracking file: {e}")
+    
+    return False
+
 def setup_logging():
     """Set up logging configuration"""
     os.makedirs(os.path.dirname(STORY_CONFIG["log_file"]), exist_ok=True)
@@ -300,6 +316,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
         title_font = STORY_CONFIG.get("title_font", STORY_CONFIG.get("font"))
         title_fontsize = STORY_CONFIG.get("heading_font_size", 72)
         title_stroke_width = text_effects.get("title_stroke_width", 2)
+        title_stroke_color = text_effects.get("title_stroke_color", "#000000")
         
         # Create title with or without shadow effects
         if text_effects_enabled and text_effects.get("title_shadow", True):
@@ -324,7 +341,8 @@ def create_story_video(story_data, background_path, music_path, output_path):
                 size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                 shadow_color=shadow_color,
                 shadow_offset=shadow_offset,
-                stroke_width=title_stroke_width
+                stroke_width=title_stroke_width,
+                stroke_color=title_stroke_color
             ).set_duration(title_duration)
         else:
             # Add better line spacing for title text (only needed for multi-line titles)
@@ -345,7 +363,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                 method='caption',
                 size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                 align='center',
-                stroke_color="black",
+                stroke_color=title_stroke_color,
                 stroke_width=title_stroke_width
             ).set_duration(title_duration)
         
@@ -491,6 +509,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
     body_font = STORY_CONFIG.get("body_font", STORY_CONFIG.get("font"))
     body_fontsize = STORY_CONFIG.get("body_font_size", 58)  # Use the value from config
     body_stroke_width = text_effects.get("body_stroke_width", 1)
+    body_stroke_color = text_effects.get("body_stroke_color", "#000000")
     
     # Make sure title_fontsize is defined before using it
     title_fontsize = STORY_CONFIG.get("heading_font_size", 72)  # Default title font size
@@ -521,6 +540,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
             title_font = STORY_CONFIG.get("title_font", STORY_CONFIG.get("font"))
             title_fontsize = STORY_CONFIG.get("heading_font_size", 72)
             title_stroke_width = text_effects.get("title_stroke_width", 2)
+            title_stroke_color = text_effects.get("title_stroke_color", "#000000")
             
             # Create title text with shadow if enabled
             if text_effects_enabled and text_effects.get("title_shadow", True):
@@ -544,7 +564,8 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     shadow_color=shadow_color,
                     shadow_offset=shadow_offset,
-                    stroke_width=title_stroke_width
+                    stroke_width=title_stroke_width,
+                    stroke_color=title_stroke_color
                 )
             else:
                 # Add better line spacing for title text (only needed for multi-line titles)
@@ -564,7 +585,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     method='caption',
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     align='center',
-                    stroke_color="black",
+                    stroke_color=title_stroke_color,
                     stroke_width=title_stroke_width
                 )
                 
@@ -587,7 +608,8 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     shadow_color=shadow_color,
                     shadow_offset=shadow_offset,
-                    stroke_width=body_stroke_width
+                    stroke_width=body_stroke_width,
+                    stroke_color=body_stroke_color
                 )
             else:
                 content_text_clip = TextClip(
@@ -598,7 +620,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     method='caption',
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     align='center',
-                    stroke_color="black",
+                    stroke_color=body_stroke_color,
                     stroke_width=body_stroke_width
                 )
             
@@ -656,7 +678,8 @@ def create_story_video(story_data, background_path, music_path, output_path):
                             size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                             shadow_color=shadow_color,
                             shadow_offset=shadow_offset,
-                            stroke_width=body_stroke_width
+                            stroke_width=body_stroke_width,
+                            stroke_color=body_stroke_color
                         )
                     else:
                         content_text_clip = TextClip(
@@ -667,7 +690,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                             method='caption',
                             size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                             align='center',
-                            stroke_color="black",
+                            stroke_color=body_stroke_color,
                             stroke_width=body_stroke_width
                         )
                     
@@ -724,6 +747,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                 
                 # Use the original font size from config without reduction
                 segment_fontsize = STORY_CONFIG.get("body_font_size", 58)
+                body_stroke_color = text_effects.get("body_stroke_color", "#000000")
                 
                 # Create segment clip with shadow
                 raw_segment_clip = create_text_with_shadow(
@@ -734,11 +758,13 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     shadow_color=shadow_color,
                     shadow_offset=shadow_offset,
-                    stroke_width=body_stroke_width
+                    stroke_width=body_stroke_width,
+                    stroke_color=body_stroke_color
                 ).set_duration(segment_duration)
             else:
                 # Use the original font size from config without reduction
                 segment_fontsize = STORY_CONFIG.get("body_font_size", 58)
+                body_stroke_color = text_effects.get("body_stroke_color", "#000000")
                 
                 # Create segment clip without shadow effect
                 raw_segment_clip = TextClip(
@@ -749,7 +775,7 @@ def create_story_video(story_data, background_path, music_path, output_path):
                     method='caption',
                     size=(TARGET_RESOLUTION[0] - horizontal_margin, None),
                     align='center',
-                    stroke_color="black",
+                    stroke_color=body_stroke_color,
                     stroke_width=body_stroke_width
                 ).set_duration(segment_duration)
             
@@ -905,7 +931,7 @@ def create_descriptive_filename(story_data, background_path, music_path):
     return filename
 
 def create_text_with_shadow(text, fontsize, color, font, size, alignment='center', 
-                           shadow_color="#000000", shadow_offset=2, stroke_width=1):
+                           shadow_color="#000000", shadow_offset=2, stroke_width=1, stroke_color="black"):
     """Create text with shadow effect for better visibility"""
     # Create the shadow text clip
     shadow = TextClip(
@@ -916,7 +942,7 @@ def create_text_with_shadow(text, fontsize, color, font, size, alignment='center
         method='caption',
         size=size,
         align=alignment,
-        stroke_color="black",
+        stroke_color=stroke_color,
         stroke_width=stroke_width
     )
     
@@ -932,7 +958,7 @@ def create_text_with_shadow(text, fontsize, color, font, size, alignment='center
         method='caption',
         size=size,
         align=alignment,
-        stroke_color="black",
+        stroke_color=stroke_color,
         stroke_width=stroke_width
     )
     
@@ -1018,6 +1044,8 @@ def main():
     parser = argparse.ArgumentParser(description='Generate story videos')
     parser.add_argument('--id', type=str, help='Specific story ID to generate. Can provide multiple IDs separated by commas.')
     parser.add_argument('--all', action='store_true', help='Generate videos for all stories in the CSV file')
+    parser.add_argument('--force', action='store_true', help='Force regeneration even if story exists')
+    parser.add_argument('--start-id', type=str, help='Start processing from this ID (when using "all" mode)')
     args = parser.parse_args()
     
     # Set up logging
@@ -1033,6 +1061,17 @@ def main():
         logging.error(f"No stories found in {STORY_CONFIG['stories_file']}")
         return
     
+    # Tracking file path
+    tracking_file = os.path.join(STORY_CONFIG["output_folder"], "story_tracking.csv")
+    
+    # Get duplicate handling setting
+    duplicate_handling = STORY_CONFIG.get("duplicate_handling", "always_new")
+    
+    # Override duplicate handling if --force is used
+    if args.force:
+        duplicate_handling = "always_new"
+        logging.info("Force flag used - will regenerate all stories regardless of existing files")
+    
     # Priority for story selection:
     # 1. Command line --id parameter (explicit selection)
     # 2. Command line --all parameter (generate all)
@@ -1045,24 +1084,72 @@ def main():
         requested_ids = [id.strip() for id in args.id.split(',')]
         for story in stories:
             if story.get('id') in requested_ids:
+                # Check if story has already been generated
+                if duplicate_handling == "skip" and has_story_been_generated(story.get('id'), tracking_file):
+                    logging.info(f"Skipping story ID {story.get('id')} - already generated")
+                    continue
                 stories_to_generate.append(story)
         if not stories_to_generate:
             logging.error(f"No stories found with requested IDs: {args.id}")
             return
-    elif args.all:
-        # Generate all stories from command line flag
-        stories_to_generate = stories
-        logging.info(f"Generating videos for all {len(stories)} stories from command line flag")
-    else:
-        # Use the config setting
-        story_selection = STORY_CONFIG.get("story_selection", "random")
-        if story_selection.lower() == "all":
-            stories_to_generate = stories
-            logging.info(f"Generating videos for all {len(stories)} stories based on config setting")
+    elif args.all or args.start_id or STORY_CONFIG.get("story_selection", "random").lower() == "all":
+        # Generate all stories (from command line flag or config)
+        
+        # Sort stories by ID for consistent ordering
+        stories = sorted(stories, key=lambda x: int(x.get('id', '0')))
+        
+        # Set starting ID (default to first story or use command line parameter)
+        start_id = args.start_id if args.start_id else None
+        start_found = (start_id is None)  # If no start_id specified, we start from beginning
+        
+        # If a specific start ID is given
+        if start_id:
+            logging.info(f"Starting from ID: {start_id}")
+        
+        # Process stories
+        for story in stories:
+            # If we have a start_id and haven't found it yet, check if this is it
+            if not start_found and story.get('id') == start_id:
+                start_found = True
+            
+            # Skip stories before start_id
+            if not start_found:
+                continue
+                
+            # Check if story has already been generated (if in skip mode)
+            if duplicate_handling == "skip" and has_story_been_generated(story.get('id'), tracking_file):
+                logging.info(f"Skipping story ID {story.get('id')} - already generated")
+                continue
+                
+            stories_to_generate.append(story)
+        
+        # Log info about what we're generating
+        if args.all:
+            logging.info(f"Generating videos for all {len(stories_to_generate)} stories from command line flag")
+        elif args.start_id:
+            logging.info(f"Generating videos for {len(stories_to_generate)} stories starting from ID {start_id}")
         else:
-            # Default to random selection (one story)
+            logging.info(f"Generating videos for all {len(stories_to_generate)} stories based on config setting")
+            
+        # Check if we have any stories to generate
+        if not stories_to_generate:
+            if start_id and not start_found:
+                logging.error(f"Starting ID {start_id} not found in stories file.")
+            else:
+                logging.error("No stories to generate. All may have been processed already.")
+            return
+    else:
+        # Default to random selection (one story)
+        if duplicate_handling == "skip":
+            # Only select from stories that haven't been generated yet
+            available_stories = [s for s in stories if not has_story_been_generated(s.get('id'), tracking_file)]
+            if not available_stories:
+                logging.error("All stories have already been generated. Use --force to regenerate.")
+                return
+            stories_to_generate = [random.choice(available_stories)]
+        else:
             stories_to_generate = [random.choice(stories)]
-            logging.info("Generating video for one random story based on config setting")
+        logging.info(f"Selected random story ID: {stories_to_generate[0].get('id')}")
     
     # Generate each requested story
     for story in stories_to_generate:

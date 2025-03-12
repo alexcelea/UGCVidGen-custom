@@ -209,7 +209,23 @@ Using the `./storygen` shortcut script provides the same functionality with a si
 
 # Generate multiple stories by ID
 ./storygen --id 1,2,3
+
+# Generate all stories in the CSV file
+./storygen --all
+
+# Start processing from a specific ID
+./storygen --start-id 4
+
+# Force regeneration even if a story has been generated before
+./storygen --force
+
+# Combine options (start from ID 4 and force regeneration)
+./storygen --start-id 4 --force
 ```
+
+You can control story generation behavior through settings in `config.py`:
+- `story_selection`: Set to "random" (generates one random story) or "all" (processes all stories)
+- `duplicate_handling`: Set to "skip" (skips previously generated stories) or "always_new" (default, creates new videos each time)
 
 For thematic backgrounds, organize videos in theme subfolders:
 ```
@@ -231,6 +247,7 @@ The story generator includes several advanced features:
 - Automatic combining of short paragraphs to maintain readability
 - Descriptive filename generation that includes story ID, title, theme, and more
 - Debug visualization options for text placement
+- Story tracking and duplicate detection via the story_tracking.csv file
 
 ## Configuration Files
 
@@ -274,6 +291,8 @@ All configuration settings are now centralized in `config.py`:
   - `max_cta_duration`: Maximum duration for CTA videos (default: 60)
 
 - **Story Generator Settings**
+  - `story_selection`: Controls which stories to process (options: "random" or "all")
+  - `duplicate_handling`: How to handle previously generated stories (options: "skip" or "always_new")
   - `heading_font_size`: Size of the title text (default: 70)
   - `body_font_size`: Size of the story text (default: 50)
   - `overlay_opacity`: Opacity of the dark overlay (default: 0.6)

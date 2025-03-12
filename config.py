@@ -63,6 +63,7 @@ STORY_CONFIG = {
     
     # Story selection settings
     "story_selection": "all",  # Options: "random" (default) or "all"
+    "duplicate_handling": "always_new",  # Options: "skip" or "always_new" (default)
     
     # Font settings with separate title/body styling
     "title_font": "assets/fonts/BeVietnamPro-Bold.ttf",
@@ -81,12 +82,14 @@ STORY_CONFIG = {
         "enabled": True,
         "title_shadow": True,
         "title_shadow_offset": 3,
-        "title_shadow_color": "#ff2956",
+        "title_shadow_color": "#000000",
+        "title_stroke_width": 2,
+        "title_stroke_color": "#ff2956",
         "body_shadow": True,
         "body_shadow_offset": 3,
         "body_shadow_color": "#000000",
         "body_stroke_width": 2,
-        "title_stroke_width": 2
+        "body_stroke_color": "#000000"
     },
     
     # Overlay effect settings
