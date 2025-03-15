@@ -9,6 +9,7 @@ import logging
 import random
 from datetime import datetime
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip, ColorClip, concatenate_videoclips
+from moviepy.video.fx import all as vfx
 import argparse
 import csv
 import re
@@ -19,7 +20,7 @@ from functools import partial
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from config import STORY_CONFIG, TARGET_RESOLUTION
-from scripts.utils import setup_directories, load_csv, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area, hex_to_rgb
+from scripts.utils import setup_directories, load_csv, resize_video, get_random_file, get_sequential_file, position_text_in_tiktok_safe_area, visualize_safe_area, hex_to_rgb
 
 # Project name for filenames
 PROJECT_NAME = "StoryGen"
@@ -258,8 +259,17 @@ def create_story_video(story_data, background_path, music_path, output_path):
     background = VideoFileClip(background_path)
     background = resize_video(background, TARGET_RESOLUTION)
     
-    # Apply zoom effect to background if enabled
+    # Apply background effects from config
     background_effects = STORY_CONFIG.get("background_effects", {})
+    
+    # Apply flip effect to background if enabled
+    flip_settings = background_effects.get("flip", {})
+    if flip_settings.get("enabled", False):
+        if flip_settings.get("horizontal", True):
+            logging.info(f"Applying horizontal flip (mirror) effect to background")
+            background = vfx.mirror_x(background)
+    
+    # Apply zoom effect to background if enabled
     zoom_settings = background_effects.get("zoom", {})
     
     if zoom_settings.get("enabled", False):
@@ -1046,6 +1056,7 @@ def main():
     parser.add_argument('--all', action='store_true', help='Generate videos for all stories in the CSV file')
     parser.add_argument('--force', action='store_true', help='Force regeneration even if story exists')
     parser.add_argument('--start-id', type=str, help='Start processing from this ID (when using "all" mode)')
+    parser.add_argument('--mode', choices=['random', 'sequential'], help='Override the file selection mode in config')
     args = parser.parse_args()
     
     # Set up logging
@@ -1053,6 +1064,18 @@ def main():
     
     # Ensure directories exist
     setup_directories([STORY_CONFIG["output_folder"]])
+    
+    # Get file selection mode from config (with command line override)
+    file_selection_mode = args.mode if args.mode else STORY_CONFIG.get("file_selection_mode", "random")
+    sequential_tracking_file = STORY_CONFIG.get("sequential_tracking_file")
+    
+    # If using sequential mode, ensure tracking file directory exists
+    if file_selection_mode == "sequential" and sequential_tracking_file:
+        tracking_dir = os.path.dirname(sequential_tracking_file)
+        setup_directories([tracking_dir])
+        logging.info(f"Using {file_selection_mode} file selection mode with tracking file: {sequential_tracking_file}")
+    else:
+        logging.info(f"Using {file_selection_mode} file selection mode")
     
     # Load stories data
     stories = load_csv(STORY_CONFIG["stories_file"])
@@ -1171,42 +1194,107 @@ def main():
         logging.info(f"  - {original_theme_dir}")
         logging.info(f"  - {folder_friendly_theme_dir}")
         
-        # Get a background video based on theme if possible
+        # Get a background video based on file selection mode
+        background_path = None
+        
         # First try the directory-friendly name
         if os.path.exists(folder_friendly_theme_dir) and os.path.isdir(folder_friendly_theme_dir):
-            background_path = get_random_file(folder_friendly_theme_dir, ['.mp4', '.mov'])
+            if file_selection_mode == "sequential":
+                background_path = get_sequential_file(
+                    folder_friendly_theme_dir, 
+                    ['.mp4', '.mov'], 
+                    sequential_tracking_file, 
+                    f"background:{theme_dir_name}"
+                )
+            else:  # Default to random
+                background_path = get_random_file(folder_friendly_theme_dir, ['.mp4', '.mov'])
+                
             if background_path:
                 logging.info(f"Found background video in directory-friendly theme folder: {folder_friendly_theme_dir}")
             else:
                 # Try the original theme name for backward compatibility
                 if os.path.exists(original_theme_dir) and os.path.isdir(original_theme_dir):
-                    background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                    if file_selection_mode == "sequential":
+                        background_path = get_sequential_file(
+                            original_theme_dir, 
+                            ['.mp4', '.mov'], 
+                            sequential_tracking_file, 
+                            f"background:{theme}"
+                        )
+                    else:  # Default to random
+                        background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                        
                     if background_path:
                         logging.info(f"Found background video in original theme folder: {original_theme_dir}")
                     else:
                         # Fallback to main backgrounds directory
-                        background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                        if file_selection_mode == "sequential":
+                            background_path = get_sequential_file(
+                                STORY_CONFIG["background_videos_folder"], 
+                                ['.mp4', '.mov'], 
+                                sequential_tracking_file, 
+                                "background:main"
+                            )
+                        else:  # Default to random
+                            background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                            
                         if background_path:
                             logging.info(f"Fallback: Found background video in main backgrounds folder")
                 else:
                     # Fallback to main backgrounds directory
-                    background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                    if file_selection_mode == "sequential":
+                        background_path = get_sequential_file(
+                            STORY_CONFIG["background_videos_folder"], 
+                            ['.mp4', '.mov'], 
+                            sequential_tracking_file, 
+                            "background:main"
+                        )
+                    else:  # Default to random
+                        background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                        
                     if background_path:
                         logging.info(f"Fallback: Found background video in main backgrounds folder")
         else:
             # Try the original theme name
             if os.path.exists(original_theme_dir) and os.path.isdir(original_theme_dir):
-                background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                if file_selection_mode == "sequential":
+                    background_path = get_sequential_file(
+                        original_theme_dir, 
+                        ['.mp4', '.mov'], 
+                        sequential_tracking_file, 
+                        f"background:{theme}"
+                    )
+                else:  # Default to random
+                    background_path = get_random_file(original_theme_dir, ['.mp4', '.mov'])
+                    
                 if background_path:
                     logging.info(f"Found background video in original theme folder: {original_theme_dir}")
                 else:
                     # Fallback to main backgrounds directory
-                    background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                    if file_selection_mode == "sequential":
+                        background_path = get_sequential_file(
+                            STORY_CONFIG["background_videos_folder"], 
+                            ['.mp4', '.mov'], 
+                            sequential_tracking_file, 
+                            "background:main"
+                        )
+                    else:  # Default to random
+                        background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                        
                     if background_path:
                         logging.info(f"Fallback: Found background video in main backgrounds folder")
             else:
                 # Fallback to main backgrounds directory
-                background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                if file_selection_mode == "sequential":
+                    background_path = get_sequential_file(
+                        STORY_CONFIG["background_videos_folder"], 
+                        ['.mp4', '.mov'], 
+                        sequential_tracking_file, 
+                        "background:main"
+                    )
+                else:  # Default to random
+                    background_path = get_random_file(STORY_CONFIG["background_videos_folder"], ['.mp4', '.mov'])
+                    
                 if background_path:
                     logging.info(f"Fallback: Found background video in main backgrounds folder")
         
@@ -1230,42 +1318,107 @@ def main():
         logging.info(f"  - {original_mood_dir}")
         logging.info(f"  - {folder_friendly_mood_dir}")
         
-        # Get music based on mood if possible
+        # Get music based on mood and file selection mode
+        music_path = None
+        
         # First try the directory-friendly name
         if os.path.exists(folder_friendly_mood_dir) and os.path.isdir(folder_friendly_mood_dir):
-            music_path = get_random_file(folder_friendly_mood_dir, ['.mp3', '.wav', '.m4a'])
+            if file_selection_mode == "sequential":
+                music_path = get_sequential_file(
+                    folder_friendly_mood_dir, 
+                    ['.mp3', '.wav', '.m4a'], 
+                    sequential_tracking_file, 
+                    f"music:{mood_dir_name}"
+                )
+            else:  # Default to random
+                music_path = get_random_file(folder_friendly_mood_dir, ['.mp3', '.wav', '.m4a'])
+                
             if music_path:
                 logging.info(f"Found music in directory-friendly mood folder: {folder_friendly_mood_dir}")
             else:
                 # Try the original mood name for backward compatibility
                 if os.path.exists(original_mood_dir) and os.path.isdir(original_mood_dir):
-                    music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                    if file_selection_mode == "sequential":
+                        music_path = get_sequential_file(
+                            original_mood_dir, 
+                            ['.mp3', '.wav', '.m4a'], 
+                            sequential_tracking_file, 
+                            f"music:{mood}"
+                        )
+                    else:  # Default to random
+                        music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                        
                     if music_path:
                         logging.info(f"Found music in original mood folder: {original_mood_dir}")
                     else:
                         # Fallback to main music directory
-                        music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                        if file_selection_mode == "sequential":
+                            music_path = get_sequential_file(
+                                STORY_CONFIG["music_folder"], 
+                                ['.mp3', '.wav', '.m4a'], 
+                                sequential_tracking_file, 
+                                "music:main"
+                            )
+                        else:  # Default to random
+                            music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                            
                         if music_path:
                             logging.info(f"Fallback: Found music in main music folder")
                 else:
                     # Fallback to main music directory
-                    music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                    if file_selection_mode == "sequential":
+                        music_path = get_sequential_file(
+                            STORY_CONFIG["music_folder"], 
+                            ['.mp3', '.wav', '.m4a'], 
+                            sequential_tracking_file, 
+                            "music:main"
+                        )
+                    else:  # Default to random
+                        music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                        
                     if music_path:
                         logging.info(f"Fallback: Found music in main music folder")
         else:
             # Try the original mood name
             if os.path.exists(original_mood_dir) and os.path.isdir(original_mood_dir):
-                music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                if file_selection_mode == "sequential":
+                    music_path = get_sequential_file(
+                        original_mood_dir, 
+                        ['.mp3', '.wav', '.m4a'], 
+                        sequential_tracking_file, 
+                        f"music:{mood}"
+                    )
+                else:  # Default to random
+                    music_path = get_random_file(original_mood_dir, ['.mp3', '.wav', '.m4a'])
+                    
                 if music_path:
                     logging.info(f"Found music in original mood folder: {original_mood_dir}")
                 else:
                     # Fallback to main music directory
-                    music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                    if file_selection_mode == "sequential":
+                        music_path = get_sequential_file(
+                            STORY_CONFIG["music_folder"], 
+                            ['.mp3', '.wav', '.m4a'], 
+                            sequential_tracking_file, 
+                            "music:main"
+                        )
+                    else:  # Default to random
+                        music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                        
                     if music_path:
                         logging.info(f"Fallback: Found music in main music folder")
             else:
                 # Fallback to main music directory
-                music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                if file_selection_mode == "sequential":
+                    music_path = get_sequential_file(
+                        STORY_CONFIG["music_folder"], 
+                        ['.mp3', '.wav', '.m4a'], 
+                        sequential_tracking_file, 
+                        "music:main"
+                    )
+                else:  # Default to random
+                    music_path = get_random_file(STORY_CONFIG["music_folder"], ['.mp3', '.wav', '.m4a'])
+                    
                 if music_path:
                     logging.info(f"Fallback: Found music in main music folder")
         

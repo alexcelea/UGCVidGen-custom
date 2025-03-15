@@ -191,6 +191,65 @@ def get_random_file(directory, extensions=None):
     
     return os.path.join(directory, random.choice(files))
 
+def get_sequential_file(directory, extensions=None, tracking_file=None, category="default"):
+    """
+    Get a file sequentially from a directory with specified extensions.
+    Uses a tracking file to remember the last used index for each category.
+    
+    Args:
+        directory (str): Directory containing files
+        extensions (list): List of file extensions to include
+        tracking_file (str): Path to a JSON file that tracks usage
+        category (str): Category identifier (e.g., "background", "music") to track separately
+        
+    Returns:
+        str: Path to the selected file
+    """
+    if extensions is None:
+        extensions = ['.mp4', '.mov', '.mp3', '.wav', '.m4a']
+    
+    # Get list of eligible files
+    files = [f for f in os.listdir(directory) 
+             if os.path.isfile(os.path.join(directory, f)) and 
+             any(f.lower().endswith(ext) for ext in extensions)]
+    
+    if not files:
+        logging.warning(f"No files with extensions {extensions} found in {directory}")
+        return None
+    
+    # Sort files to ensure consistent ordering
+    files.sort()
+    
+    # Initialize or load the tracking data
+    tracking_data = {}
+    if tracking_file and os.path.exists(tracking_file):
+        try:
+            with open(tracking_file, 'r') as f:
+                tracking_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            logging.warning(f"Could not load tracking file {tracking_file}, creating new")
+            tracking_data = {}
+    
+    # Get the current index for this category and directory
+    category_key = f"{category}:{directory}"
+    current_index = tracking_data.get(category_key, -1)
+    
+    # Get the next file index (cycle back to 0 if we've used all files)
+    next_index = (current_index + 1) % len(files)
+    selected_file = files[next_index]
+    
+    # Update and save tracking data
+    tracking_data[category_key] = next_index
+    
+    if tracking_file:
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(tracking_file), exist_ok=True)
+        with open(tracking_file, 'w') as f:
+            json.dump(tracking_data, f)
+    
+    logging.info(f"Sequential selection: {category} file {next_index+1}/{len(files)}: {selected_file}")
+    return os.path.join(directory, selected_file)
+
 def load_used_items(file_path):
     """Load used items from a file"""
     used_items = []

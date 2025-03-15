@@ -62,13 +62,17 @@ STORY_CONFIG = {
     "output_folder": "output/stories",
     
     # Story selection settings
-    "story_selection": "all",  # Options: "random" (default) or "all"
+    "story_selection": "all",  # Options: "random" (default) or "all" for stories.csv
     "duplicate_handling": "always_new",  # Options: "skip" or "always_new" (default)
     
+    # Asset selection settings
+    "file_selection_mode": "sequential",  # Options: "random" or "sequential"
+    "sequential_tracking_file": "output/stories/sequential_tracking.json",  # Tracking file for sequential selection
+    
     # Font settings with separate title/body styling
-    "title_font": "assets/fonts/BeVietnamPro-Bold.ttf",
-    "body_font": "assets/fonts/BeVietnamPro-Medium.ttf",
-    "font": "assets/fonts/BeVietnamPro-Medium.ttf",  # Kept for backwards compatibility
+    "title_font": "assets/fonts/Karla-ExtraBold.ttf",
+    "body_font": "assets/fonts/Karla-Medium.ttf",
+    "font": "assets/fonts/Karla-Medium.ttf",  # Kept for backwards compatibility
     "heading_font_size": 54,  # Slightly larger for more prominence
     "body_font_size": 54,  # Slightly smaller for hierarchy
     
@@ -81,14 +85,14 @@ STORY_CONFIG = {
     "text_effects": {
         "enabled": True,
         "title_shadow": True,
-        "title_shadow_offset": 3,
-        "title_shadow_color": "#000000",
-        "title_stroke_width": 2,
+        "title_shadow_offset": 4,
+        "title_shadow_color": "#3a1c71",
+        "title_stroke_width": 1,
         "title_stroke_color": "#ff2956",
         "body_shadow": True,
         "body_shadow_offset": 3,
         "body_shadow_color": "#000000",
-        "body_stroke_width": 2,
+        "body_stroke_width": 1,
         "body_stroke_color": "#000000"
     },
     
@@ -115,6 +119,10 @@ STORY_CONFIG = {
             "enabled": True,
             "factor": 1.1,  # How much to zoom by the end
             "direction": "in"  # "in" or "out"
+        },
+        "flip": {
+            "enabled": True,  # Set to True to flip the background video
+            "horizontal": True  # Flip horizontally to mirror the background
         }
     },
     
@@ -129,7 +137,7 @@ STORY_CONFIG = {
     "title_duration": 3.0,  # Duration for title display
     "title_position_y": None,  # Set to None to use automatic positioning in safe top area
     "segment_position_y": None,  # Set to None to use automatic vertical centering
-    "fade_duration": 0.2,  # Duration of fade in/out for segments
+    "fade_duration": 0,  # Duration of fade in/out for segments
     "show_title_by_default": False,  # Whether to show title cards by default
     "title_own_segment": False,  # If True, title appears on its own card; if False, title combines with first segment
     # TikTok safe margin settings (in pixels)
