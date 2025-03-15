@@ -847,15 +847,53 @@ def create_story_video(story_data, background_path, music_path, output_path):
         logging.info(f"Trimming final video from {final_video.duration}s to exact duration of {total_video_duration}s")
         final_video = final_video.subclip(0, total_video_duration)
     
-    # Write the final video
-    final_video.write_videofile(
-        output_path,
-        fps=24,
-        codec="libx264",
-        audio_codec="aac",
-        audio_bitrate="192k",
-        threads=4
-    )
+    # Check if iPhone style is enabled in config
+    iphone_style_config = STORY_CONFIG.get("iphone_style", {})
+    iphone_style_enabled = iphone_style_config.get("enabled", False)
+    
+    # Check if we need to change the output path extension
+    if iphone_style_enabled and iphone_style_config.get("use_mov_container", True):
+        if output_path.lower().endswith('.mp4'):
+            output_path = output_path[:-4] + '.mov'
+            logging.info(f"Changed output extension to .mov for iPhone compatibility")
+    
+    # Write the final video with appropriate encoding based on configuration
+    if iphone_style_enabled:
+        logging.info("Writing video with iPhone-style encoding")
+        final_video.write_videofile(
+            output_path,
+            fps=24,
+            codec=iphone_style_config.get("codec", "libx265"),  # HEVC codec like iPhone
+            preset='medium',
+            bitrate=iphone_style_config.get("bitrate", "16000k"),
+            ffmpeg_params=[
+                '-tag:v', 'hvc1',         # Add HVC1 tag for Apple compatibility
+                '-pix_fmt', 'yuv420p',    # Standard pixel format
+                '-movflags', '+faststart', # Optimize for web streaming
+                '-color_primaries', 'bt709', # Standard color space
+                '-color_trc', 'bt709',     # Standard color transfer
+                '-colorspace', 'bt709',    # Standard colorspace
+            ],
+            audio_codec='aac',
+            audio_bitrate='192k',
+            threads=4
+        )
+        
+        # Apply iPhone metadata
+        from utils import apply_iphone_metadata
+        output_path = apply_iphone_metadata(output_path)
+        logging.info(f"Applied iPhone metadata to: {output_path}")
+    else:
+        # Standard encoding (original behavior)
+        logging.info("Writing video with standard encoding")
+        final_video.write_videofile(
+            output_path,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            audio_bitrate="192k",
+            threads=4
+        )
     
     logging.info(f"Story video created: {output_path}")
     
@@ -930,13 +968,21 @@ def create_descriptive_filename(story_data, background_path, music_path):
     # Add date in format YYYYMMDD_HHMMSS
     today = datetime.now().strftime("%Y%m%d_%H%M%S")
     
+    # Check if iPhone style is enabled and should use .mov extension
+    iphone_style_config = STORY_CONFIG.get("iphone_style", {})
+    use_mov_container = (iphone_style_config.get("enabled", False) and 
+                        iphone_style_config.get("use_mov_container", True))
+    
+    # Set the extension based on configuration
+    extension = '.mov' if use_mov_container else '.mp4'
+    
     # Combine components - format: YYYYMMDD_HHMMSS_sID_titlesummary_theme_mood_bgname_musicname.mp4
-    filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}_{background_name}_{music_name}.mp4"
+    filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}_{background_name}_{music_name}{extension}"
     
     # Ensure the filename isn't too long
     if len(filename) > 100:
         # If we need to truncate, keep just the essential parts
-        filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}.mp4"
+        filename = f"{today}_s{story_id}_{title_summary}_{background_theme}_{music_mood}{extension}"
     
     return filename
 

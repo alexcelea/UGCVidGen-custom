@@ -1,3 +1,6 @@
+.web
+*.db
+assets/external/
 # Virtual Environment
 venv/
 env/

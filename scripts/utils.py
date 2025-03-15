@@ -373,4 +373,100 @@ def visualize_safe_area(clip, tiktok_margins, target_resolution, duration=None):
     ).set_duration(duration).set_position((safe_left + 10, safe_bottom + 5))
     
     # Combine clips
-    return CompositeVideoClip([clip, safe_clip, top_label, bottom_label]) 
+    return CompositeVideoClip([clip, safe_clip, top_label, bottom_label])
+
+def apply_iphone_metadata(video_path, temp_path=None):
+    """
+    Apply iPhone-style metadata to a video file using exiftool.
+    
+    This function adds metadata to make videos appear as if they were recorded
+    on an iPhone, including device information and encoding details.
+    Geolocation data is intentionally omitted.
+    
+    Args:
+        video_path (str): Path to the video file
+        temp_path (str, optional): Temporary file path for processing
+                                  If None, a temp path will be created
+    
+    Returns:
+        str: Path to the processed video file with iPhone metadata
+    """
+    import subprocess
+    import os
+    from datetime import datetime
+    
+    # Generate a temp path if not provided
+    if temp_path is None:
+        base, ext = os.path.splitext(video_path)
+        temp_path = f"{base}_temp{ext}"
+    
+    # Rename original file to temp path if needed
+    if os.path.exists(video_path) and not os.path.exists(temp_path):
+        os.rename(video_path, temp_path)
+    
+    # Current date in proper format for exiftool
+    current_date = datetime.now().strftime("%Y:%m:%d %H:%M:%S")
+    
+    # Define exiftool command with iPhone metadata
+    exiftool_cmd = [
+        "exiftool",
+        # Device info
+        "-Make=Apple",
+        "-Model=iPhone 14 Pro",
+        "-Software=18.3.1",
+        "-LensModel=iPhone 14 Pro back camera 6.86mm f/1.78",
+        "-FocalLengthIn35mmFormat=24",
+        
+        # Video properties
+        "-VideoFrameRate=24",
+        "-Rotation=0",  # We're directly creating vertical video
+        
+        # Date information
+        "-CreateDate=" + current_date,
+        "-ModifyDate=" + current_date,
+        "-TrackCreateDate=" + current_date,
+        "-TrackModifyDate=" + current_date,
+        "-MediaCreateDate=" + current_date,
+        "-MediaModifyDate=" + current_date,
+        
+        # Audio properties
+        "-AudioChannels=2",
+        "-AudioSampleRate=44100",
+        
+        # QuickTime specific tags
+        "-QuickTime:Make=Apple",
+        "-QuickTime:Model=iPhone 14 Pro",
+        "-QuickTime:Software=18.3.1",
+        "-CompressorName=HEVC",
+        "-CompressorID=hvc1",
+        
+        # Output settings
+        "-o", video_path,
+        temp_path
+    ]
+    
+    try:
+        logging.info("Applying iPhone metadata with exiftool")
+        result = subprocess.run(exiftool_cmd, check=True, capture_output=True, text=True)
+        
+        if result.stderr:
+            logging.warning(f"Exiftool warnings: {result.stderr}")
+        
+        logging.info("Successfully applied iPhone metadata")
+        
+        # Clean up temp file if successful
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        return video_path
+        
+    except Exception as e:
+        logging.error(f"Failed to apply iPhone metadata: {e}")
+        
+        # Restore original file if metadata application failed
+        if os.path.exists(temp_path):
+            if os.path.exists(video_path):
+                os.remove(video_path)
+            os.rename(temp_path, video_path)
+            
+        return video_path 

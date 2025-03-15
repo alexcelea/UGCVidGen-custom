@@ -150,6 +150,15 @@ STORY_CONFIG = {
         "horizontal_text_margin": 240,  # Total horizontal margin (left + right)
         "show_debug_visualization": False,  # Whether to show debug visualization of safe zones
     },
+    
+    # iPhone-style video settings
+    "iphone_style": {
+        "enabled": True,           # Enable/disable iPhone-style encoding and metadata
+        "model": "iPhone 14 Pro",  # iPhone model to emulate
+        "codec": "libx265",        # Video codec (HEVC)
+        "use_mov_container": True, # Use .mov container instead of .mp4
+        "bitrate": "16000k"        # Video bitrate
+    },
 }
 
 # API credentials from environment variables
