@@ -7,4 +7,4 @@ elevenlabs==0.2.26
 python-dotenv==1.0.0
 fal-client==0.5.0
 requests==2.31.0 
-reflex==0.6.8
+
