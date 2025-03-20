@@ -200,6 +200,18 @@ def verify_audio_file(file_path):
         logging.error(f"Error verifying audio file {file_path}: {e}")
         return False
 
+def check_video_has_audio(video_path):
+    """Check if a video file has an audio stream using ffprobe."""
+    try:
+        cmd = ['ffprobe', '-i', video_path, '-show_streams', '-select_streams', 'a', '-v', 'error']
+        output = subprocess.check_output(cmd).decode('utf-8')
+        has_audio = 'codec_type=audio' in output
+        logging.info(f"Video {video_path} has audio: {has_audio}")
+        return has_audio
+    except Exception as e:
+        logging.error(f"Error checking audio in video {video_path}: {e}")
+        return False
+
 def generate_elevenlabs_tts(text, output_path):
     """Generate TTS audio from text using ElevenLabs and save to file."""
     try:
@@ -483,8 +495,20 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
         print("Loading CTA videos...")
         cta_clips = []
         for cta_path in cta_video_paths:
+            # First check if the video has audio using ffprobe
+            has_audio = check_video_has_audio(cta_path)
+            if not has_audio:
+                logging.warning(f"CTA video has no audio track: {cta_path}")
+            
             cta_clip = VideoFileClip(cta_path)
             cta_clip = resize_video(cta_clip, TARGET_RESOLUTION)
+            
+            # Double check the audio with MoviePy
+            if cta_clip.audio is None:
+                logging.warning(f"CTA clip has no audio according to MoviePy: {cta_path}")
+            else:
+                logging.info(f"CTA clip has audio with duration: {cta_clip.audio.duration:.2f}s")
+            
             cta_clips.append(cta_clip)
         
         # Combine all videos (without audio for now)
@@ -556,10 +580,46 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                 background_music = background_music.volumex(1.5)  # Increase background music volume significantly
                 final_video = final_video.set_audio(background_music)
         else:
-            # No TTS, just use the background music with higher volume
-            logging.info("No TTS audio, using background music only")
-            background_music = background_music.volumex(1.5)  # Increase background music volume significantly
-            final_video = final_video.set_audio(background_music)
+            # No TTS, but still include CTA audio with background music
+            logging.info("No TTS audio, using background music with CTA audio")
+            try:
+                hook_duration = combined_hook.duration
+                total_duration = final_video.duration
+                
+                # Start with background music
+                final_audio_clips = [
+                    background_music.volumex(0.8)  # Slightly louder background music
+                ]
+                
+                # Add CTA clips audio with appropriate start times
+                current_time = hook_duration
+                has_cta_audio = False
+                for i, cta_clip in enumerate(cta_clips):
+                    if cta_clip.audio:
+                        cta_audio = cta_clip.audio.volumex(1.0)  # Full volume for CTA audio
+                        cta_audio = cta_audio.set_start(current_time)
+                        final_audio_clips.append(cta_audio)
+                        has_cta_audio = True
+                    current_time += cta_clip.duration
+                
+                # Create the composite audio
+                final_audio = CompositeAudioClip(final_audio_clips)
+                final_audio = final_audio.subclip(0, total_duration)
+                
+                # Set the final audio to the video
+                final_video = final_video.set_audio(final_audio)
+                
+                if has_cta_audio:
+                    logging.info("Successfully included CTA audio with background music")
+                else:
+                    logging.info("No CTA audio found, using only background music")
+                
+            except Exception as e:
+                logging.error(f"Error creating audio without TTS: {e}")
+                # Fallback to just using the background music
+                logging.info("Fallback: Using only background music due to error")
+                background_music = background_music.volumex(1.5)  # Increase background music volume
+                final_video = final_video.set_audio(background_music)
 
         # Verify background music file
         if not verify_audio_file(music_path):
@@ -612,18 +672,42 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                             os.rename(temp_output, output_path)
                             logging.info(f"Successfully fixed audio using ffmpeg directly: {output_path}")
                     else:
-                        # Just add background music
-                        cmd = [
-                            'ffmpeg', '-i', output_path, '-i', music_path,
-                            '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                            '-y', temp_output
-                        ]
-                        subprocess.check_call(cmd)
-                        if os.path.exists(temp_output) and verify_audio_file(temp_output):
-                            # Replace the original with the fixed version
-                            os.remove(output_path)
-                            os.rename(temp_output, output_path)
-                            logging.info(f"Successfully fixed audio using ffmpeg directly: {output_path}")
+                        # For no-TTS case, we might need to extract and preserve CTA audio
+                        logging.info(f"Attempting to fix audio (preserving CTA audio) with ffmpeg directly...")
+                        
+                        # Check if there are CTA videos with audio that we need to consider
+                        has_cta_audio = any(verify_audio_file(cta_path) for cta_path in cta_video_paths)
+                        
+                        if has_cta_audio:
+                            # This is more complex as we'd need to extract CTA audio and position it correctly
+                            # Since this requires knowledge of the CTA start times and durations, 
+                            # we'll just log that manual ffmpeg work would be needed
+                            logging.info("CTA audio detected but direct ffmpeg fix is limited. Apply the moviepy fix instead.")
+                            # Just add background music as fallback
+                            cmd = [
+                                'ffmpeg', '-i', output_path, '-i', music_path,
+                                '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                                '-y', temp_output
+                            ]
+                            subprocess.check_call(cmd)
+                            if os.path.exists(temp_output) and verify_audio_file(temp_output):
+                                # Replace the original with the fixed version
+                                os.remove(output_path)
+                                os.rename(temp_output, output_path)
+                                logging.info(f"Added background music as fallback: {output_path}")
+                        else:
+                            # Just add background music
+                            cmd = [
+                                'ffmpeg', '-i', output_path, '-i', music_path,
+                                '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                                '-y', temp_output
+                            ]
+                            subprocess.check_call(cmd)
+                            if os.path.exists(temp_output) and verify_audio_file(temp_output):
+                                # Replace the original with the fixed version
+                                os.remove(output_path)
+                                os.rename(temp_output, output_path)
+                                logging.info(f"Successfully fixed audio using ffmpeg directly: {output_path}")
                 except Exception as e:
                     logging.error(f"Error fixing audio with ffmpeg: {e}")
         except Exception as e:
