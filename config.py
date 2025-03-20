@@ -17,15 +17,15 @@ UGC_CONFIG = {
     "hooks_file": "content/hooks.csv",
     "hooks_videos_folder": "assets/videos/hooks",
     "cta_videos_folder": "assets/videos/ctas",
-    "music_folder": "assets/music",
+    "music_folder": "assets/music/instrumental_impact",
     "output_folder": "output/ugc",
     "tts_files_folder": "output/ugc/tts_files",
-    "font": "assets/fonts/BeVietnamPro-Bold.ttf",
+    "font": "assets/fonts/Lato-Black.ttf",
     "font_size": 70,
     "text_color": "white",
     "background_color": "black",
-    "num_videos": 1,
-    "max_cta_videos": 3,
+    "num_videos": 2,
+    "max_cta_videos": 1,
     "max_cta_duration": 60,
     "generate_all_combinations": False,
     "used_hooks_file": "content/used_hooks.txt",
@@ -163,5 +163,5 @@ STORY_CONFIG = {
 
 # API credentials from environment variables
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Aria")
+ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Laura")
 FAL_KEY = os.getenv("FAL_KEY", "") 
