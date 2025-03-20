@@ -31,6 +31,11 @@ UGC_CONFIG = {
     "used_hooks_file": "content/used_hooks.txt",
     "video_list_file": "output/ugc/video_list.txt",
     "log_file": "output/ugc/video_creation.log",
+    # Asset selection settings
+    "file_selection_mode": "random",  # Options: "random" (default) or "sequential"
+    "music_selection_mode": "sequential",  # Options: "random" or "sequential" - can be different from file_selection_mode
+    "sequential_tracking_file": "output/ugc/sequential_tracking.json",  # Tracking file for video assets
+    "music_tracking_file": "output/music_tracking.json",  # Existing tracking file for music
     # TikTok safe margin settings (in pixels)
     "tiktok_margins": {
         "enabled": True,  # Whether to use TikTok-specific safe margins

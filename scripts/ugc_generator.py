@@ -127,6 +127,36 @@ def get_random_video(folder_path):
     logging.info(f"Selected video: {selected_video}")
     return os.path.join(folder_path, selected_video)
 
+def get_hook_video(folder_path):
+    """
+    Pick a hook video from the folder using the configured selection mode.
+    Uses either random selection or sequential selection based on UGC_CONFIG.
+    """
+    selection_mode = UGC_CONFIG.get("file_selection_mode", "random")
+    
+    if selection_mode == "sequential":
+        # Use sequential selection
+        tracking_file = UGC_CONFIG.get("sequential_tracking_file")
+        from scripts.utils import get_sequential_file
+        
+        video_path = get_sequential_file(
+            folder_path, 
+            extensions=['.mp4', '.mov'],
+            tracking_file=tracking_file,
+            category="ugc_hook_video"
+        )
+        
+        if video_path:
+            logging.info(f"Selected hook video sequentially: {os.path.basename(video_path)}")
+            return video_path
+        else:
+            # Fallback to random if sequential fails
+            logging.warning("Sequential hook video selection failed, falling back to random")
+            return get_random_video(folder_path)
+    else:
+        # Use random selection
+        return get_random_video(folder_path)
+
 def get_all_videos(folder_path):
     """Get all video files from a folder."""
     if not os.path.exists(folder_path):
@@ -140,6 +170,16 @@ def get_all_videos(folder_path):
 
 def get_multiple_cta_videos(folder_path, max_count=MAX_CTA_VIDEOS, max_duration=MAX_CTA_DURATION):
     """Get multiple CTA videos respecting max count and duration limits."""
+    selection_mode = UGC_CONFIG.get("file_selection_mode", "random")
+    
+    if selection_mode == "sequential":
+        return get_sequential_cta_videos(folder_path, max_count, max_duration)
+    else:
+        # Default to random selection
+        return get_random_cta_videos(folder_path, max_count, max_duration)
+
+def get_random_cta_videos(folder_path, max_count=MAX_CTA_VIDEOS, max_duration=MAX_CTA_DURATION):
+    """Get multiple CTA videos randomly respecting max count and duration limits."""
     all_cta_videos = get_all_videos(folder_path)
     random.shuffle(all_cta_videos)
     
@@ -169,6 +209,78 @@ def get_multiple_cta_videos(folder_path, max_count=MAX_CTA_VIDEOS, max_duration=
     logging.info(f"Selected {len(selected_videos)} CTA videos with total duration {total_duration:.2f}s")
     return selected_videos
 
+def get_sequential_cta_videos(folder_path, max_count=MAX_CTA_VIDEOS, max_duration=MAX_CTA_DURATION):
+    """Get multiple CTA videos sequentially respecting max count and duration limits."""
+    tracking_file = UGC_CONFIG.get("sequential_tracking_file")
+    from scripts.utils import get_sequential_file
+    
+    selected_videos = []
+    total_duration = 0
+    
+    # Get all videos first to know how many we have
+    all_videos = get_all_videos(folder_path)
+    
+    # Sort videos to ensure consistent ordering
+    all_videos.sort()
+    
+    # Calculate how many videos we need to check (might need to loop around)
+    num_videos = len(all_videos)
+    
+    # Load tracking data to find last used index
+    tracking_data = {}
+    if tracking_file and os.path.exists(tracking_file):
+        try:
+            with open(tracking_file, 'r') as f:
+                tracking_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            logging.warning(f"Could not load tracking file {tracking_file}, creating new")
+            tracking_data = {}
+    
+    # Get the current index for this category
+    category_key = f"ugc_cta_video:{folder_path}"
+    current_index = tracking_data.get(category_key, -1)
+    
+    # Try to select videos, starting from the next index
+    videos_checked = 0
+    while len(selected_videos) < max_count and videos_checked < num_videos * 2:  # Limit to avoid infinite loop
+        next_index = (current_index + 1) % num_videos
+        video_path = all_videos[next_index]
+        
+        # Check duration
+        try:
+            with VideoFileClip(video_path) as clip:
+                duration = clip.duration
+                
+                # If it fits within our limits, add it
+                if total_duration + duration <= max_duration:
+                    selected_videos.append(video_path)
+                    total_duration += duration
+                    logging.info(f"Selected sequential CTA video {next_index+1}/{num_videos}: {os.path.basename(video_path)}")
+                else:
+                    logging.info(f"Skipping CTA video due to duration limit: {os.path.basename(video_path)}")
+        except Exception as e:
+            logging.error(f"Error checking duration for {video_path}: {e}")
+        
+        # Update tracking
+        current_index = next_index
+        videos_checked += 1
+        
+        # Stop if we've reached the limit
+        if len(selected_videos) >= max_count:
+            break
+    
+    # Save the last index
+    tracking_data[category_key] = current_index
+    
+    if tracking_file:
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(tracking_file), exist_ok=True)
+        with open(tracking_file, 'w') as f:
+            json.dump(tracking_data, f)
+    
+    logging.info(f"Selected {len(selected_videos)} sequential CTA videos with total duration {total_duration:.2f}s")
+    return selected_videos
+
 def get_random_music(folder_path):
     """Pick a random music file from the folder."""
     if not os.path.exists(folder_path):
@@ -183,6 +295,100 @@ def get_random_music(folder_path):
     selected_music = random.choice(music_files)
     logging.info(f"Selected music: {selected_music}")
     return os.path.join(folder_path, selected_music)
+
+def get_music(folder_path):
+    """
+    Pick a music file from the folder using the configured selection mode.
+    Uses either random selection or sequential selection based on UGC_CONFIG.
+    """
+    selection_mode = UGC_CONFIG.get("music_selection_mode", UGC_CONFIG.get("file_selection_mode", "random"))
+    
+    if selection_mode == "sequential":
+        # Use sequential selection with the existing music tracking file
+        return get_sequential_music(folder_path)
+    else:
+        # Use random selection
+        return get_random_music(folder_path)
+
+def get_sequential_music(folder_path):
+    """
+    Get music files sequentially using the existing music_tracking.json file.
+    This follows the format already being used in the project.
+    """
+    tracking_file = UGC_CONFIG.get("music_tracking_file")
+    if not tracking_file:
+        logging.warning("No music tracking file specified, falling back to random selection")
+        return get_random_music(folder_path)
+    
+    # Ensure the music folder exists
+    if not os.path.exists(folder_path):
+        logging.error(f"Music folder not found: {folder_path}")
+        raise FileNotFoundError(f"Music folder not found: {folder_path}")
+    
+    # Get all music files
+    music_files = [f for f in os.listdir(folder_path) if f.endswith((".mp3", ".wav", ".m4a"))]
+    if not music_files:
+        logging.error(f"No music files found in {folder_path}")
+        raise FileNotFoundError(f"No music files found in {folder_path}")
+    
+    # Sort files to ensure consistent ordering
+    music_files.sort()
+    
+    # Get or create the tracking data
+    tracking_data = {}
+    if os.path.exists(tracking_file):
+        try:
+            with open(tracking_file, 'r') as f:
+                tracking_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logging.warning(f"Error reading music tracking file: {e}, creating new")
+            tracking_data = {}
+    
+    # Get the folder key or create it if it doesn't exist
+    folder_key = folder_path
+    if folder_key not in tracking_data:
+        tracking_data[folder_key] = []
+    
+    used_music = tracking_data[folder_key]
+    
+    # Find the next unused music file, or cycle back if all used
+    for music_file in music_files:
+        if music_file not in used_music:
+            # Found an unused file, add it to the tracking
+            used_music.append(music_file)
+            tracking_data[folder_key] = used_music
+            
+            # Save the updated tracking data
+            try:
+                os.makedirs(os.path.dirname(tracking_file), exist_ok=True)
+                with open(tracking_file, 'w') as f:
+                    json.dump(tracking_data, f, indent=2)
+                logging.info(f"Updated music tracking file: {tracking_file}")
+            except Exception as e:
+                logging.error(f"Error updating music tracking file: {e}")
+            
+            selected_music = os.path.join(folder_path, music_file)
+            logging.info(f"Selected sequential music: {music_file}")
+            return selected_music
+    
+    # If all files have been used, clear the list and start over
+    logging.info("All music files have been used, starting fresh cycle")
+    if music_files:
+        selected_music = music_files[0]
+        tracking_data[folder_key] = [selected_music]
+        
+        # Save the updated tracking data
+        try:
+            with open(tracking_file, 'w') as f:
+                json.dump(tracking_data, f, indent=2)
+            logging.info(f"Reset music tracking and selected first file: {selected_music}")
+        except Exception as e:
+            logging.error(f"Error updating music tracking file: {e}")
+            
+        return os.path.join(folder_path, selected_music)
+    else:
+        # Fallback if something went wrong
+        return get_random_music(folder_path)
 
 def verify_audio_file(file_path):
     """Verify that an audio file contains valid audio data."""
@@ -477,11 +683,24 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
         
         # Handle audio separately to ensure TTS is preserved
         hook_with_tts = None
+        hook_has_audio = hook_clip.audio is not None
+        
+        # Check if hook video has audio with ffprobe and MoviePy
+        has_hook_audio = check_video_has_audio(hook_video_path)
+        if has_hook_audio:
+            if not hook_has_audio:
+                logging.warning(f"Hook video has audio according to ffprobe but not MoviePy: {hook_video_path}")
+            else:
+                logging.info(f"Hook video has audio with duration: {hook_clip.audio.duration:.2f}s")
+        else:
+            logging.info(f"Hook video has no audio track: {hook_video_path}")
+            
         if tts_audio:
             logging.info("Adding TTS audio to hook")
             # If hook has audio, mix it with TTS at lower volume
-            if hook_clip.audio:
-                hook_audio = hook_clip.audio.volumex(0.1)
+            if hook_has_audio:
+                # Use a slightly higher volume (0.3 instead of 0.1) for better audibility
+                hook_audio = hook_clip.audio.volumex(0.3) 
                 combined_audio = CompositeAudioClip([hook_audio, tts_audio.volumex(1.0)])
                 logging.info("Mixed hook audio with TTS")
             else:
@@ -490,6 +709,13 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
             
             # Store the combined audio but don't set it to the clip yet
             hook_with_tts = combined_audio
+        elif hook_has_audio:
+            # If no TTS but hook has audio, preserve the hook audio
+            logging.info("No TTS audio, preserving hook audio")
+            hook_with_tts = hook_clip.audio.volumex(1.0)  # Full volume for hook audio
+        else:
+            logging.info("No TTS audio and hook has no audio")
+            hook_with_tts = None
 
         # Load CTA videos
         print("Loading CTA videos...")
@@ -548,7 +774,7 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                 # Create a CompositeAudioClip with the hook TTS and background music
                 # We need to position the TTS at the start and the music throughout
                 final_audio_clips = [
-                    background_music.volumex(0.5)  # Increased background music volume
+                    background_music.volumex(0.4)  # Reduced background music volume for better voice clarity
                 ]
                 
                 # Add TTS with the correct start time (0) and higher volume
@@ -560,7 +786,7 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                 current_time = hook_duration
                 for i, cta_clip in enumerate(cta_clips):
                     if cta_clip.audio:
-                        cta_audio = cta_clip.audio.volumex(0.8)  # Increased CTA audio volume
+                        cta_audio = cta_clip.audio.volumex(0.9)  # Slightly increase CTA audio volume
                         cta_audio = cta_audio.set_start(current_time)
                         final_audio_clips.append(cta_audio)
                     current_time += cta_clip.duration
@@ -588,8 +814,15 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                 
                 # Start with background music
                 final_audio_clips = [
-                    background_music.volumex(0.8)  # Slightly louder background music
+                    background_music.volumex(0.6)  # Reduced background music volume to make room for hook audio
                 ]
+                
+                # Add hook audio if available
+                if hook_has_audio and hook_with_tts is not None:
+                    hook_with_tts = hook_with_tts.subclip(0, min(hook_with_tts.duration, hook_duration))
+                    hook_with_tts = hook_with_tts.set_start(0) 
+                    final_audio_clips.append(hook_with_tts)
+                    logging.info("Added hook audio to final composition")
                 
                 # Add CTA clips audio with appropriate start times
                 current_time = hook_duration
@@ -612,7 +845,7 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
                 if has_cta_audio:
                     logging.info("Successfully included CTA audio with background music")
                 else:
-                    logging.info("No CTA audio found, using only background music")
+                    logging.info("No CTA audio found, using only background music and hook audio")
                 
             except Exception as e:
                 logging.error(f"Error creating audio without TTS: {e}")
@@ -866,7 +1099,22 @@ def save_video_details(hook_video, hook_text, cta_videos, music_file, final_vide
         logging.error(f"Error saving video details: {e}")
 
 def main():
-    """Main script to automate video creation."""
+    """
+    Main script to automate video creation.
+    
+    File selection modes:
+    - Random: Selects hook videos, CTA videos, and music randomly (default)
+    - Sequential: Selects assets in sequential order, cycling through all available files
+      
+    To enable sequential selection for all assets, set "file_selection_mode": "sequential" in UGC_CONFIG in config.py.
+    
+    Music selection can be controlled separately:
+    - Set "music_selection_mode": "sequential" to use music sequentially even with random videos
+    - Set "music_selection_mode": "random" to use random music even with sequential videos
+    
+    Sequential selection for videos uses the tracking file at "sequential_tracking_file" (default: output/ugc/sequential_tracking.json).
+    Sequential selection for music uses the existing tracking file at "music_tracking_file" (default: output/music_tracking.json).
+    """
     start_time = time.time()
     
     print("\n🎬 Starting UGC Reel Generator...")
@@ -931,7 +1179,7 @@ def main():
                 try:
                     # Get multiple CTA videos respecting limits
                     cta_videos = get_multiple_cta_videos(CTA_VIDEOS_FOLDER, MAX_CTA_VIDEOS, MAX_CTA_DURATION)
-                    music_file = get_random_music(MUSIC_FOLDER)
+                    music_file = get_music(MUSIC_FOLDER)
 
                     video_number = last_number + i + 1
                     
@@ -960,7 +1208,7 @@ def main():
             print(f"\n🎥 Generating {NUM_VIDEOS} videos...")
             for i in tqdm(range(NUM_VIDEOS), desc="Generating videos"):
                 try:
-                    hook_video = get_random_video(HOOK_VIDEOS_FOLDER)
+                    hook_video = get_hook_video(HOOK_VIDEOS_FOLDER)
                     # Get unused hook with ID
                     unused_hooks = hooks[~hooks["text"].isin(used_hooks)]
                     if unused_hooks.empty:
@@ -970,7 +1218,7 @@ def main():
                     hook_id = selected_hook["id"]
                     
                     cta_videos = get_multiple_cta_videos(CTA_VIDEOS_FOLDER, MAX_CTA_VIDEOS, MAX_CTA_DURATION)
-                    music_file = get_random_music(MUSIC_FOLDER)
+                    music_file = get_music(MUSIC_FOLDER)
 
                     video_number = last_number + i + 1
                     
