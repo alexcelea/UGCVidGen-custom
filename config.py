@@ -24,7 +24,7 @@ UGC_CONFIG = {
     "font_size": 70,
     "text_color": "white",
     "background_color": "black",
-    "num_videos": 2,
+    "num_videos": 3,
     "max_cta_videos": 1,
     "max_cta_duration": 60,
     "generate_all_combinations": False,

@@ -568,7 +568,22 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
             tts_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
             logging.info(f"Temporary TTS file path: {tts_file}")
             
-            if generate_elevenlabs_tts(hook_text, tts_file):
+            # Get the tts value from the hooks dataframe if available
+            tts_text = hook_text
+            try:
+                # Find the hook in the hooks dataframe by text
+                hooks_df = load_hooks(HOOKS_CSV)
+                hook_row = hooks_df[hooks_df['text'] == hook_text]
+                
+                if not hook_row.empty and 'tts' in hook_row.columns and hook_row['tts'].iloc[0]:
+                    tts_text = hook_row['tts'].iloc[0]
+                    logging.info(f"Using TTS-specific text: {tts_text}")
+                else:
+                    logging.info(f"No TTS-specific text found, using original hook text")
+            except Exception as e:
+                logging.warning(f"Error finding TTS text: {e}. Using original hook text.")
+            
+            if generate_elevenlabs_tts(tts_text, tts_file):
                 try:
                     # Verify audio file before loading
                     if verify_audio_file(tts_file):
@@ -1166,6 +1181,7 @@ def main():
             for hook_data in hooks.itertuples():
                 hook_text = hook_data.text
                 hook_id = hook_data.id
+                hook_tts = hook_data.tts if hasattr(hook_data, 'tts') else hook_text  # Get TTS text if available
                 for hook_video in hook_videos:
                     combinations.append((hook_video, hook_id, hook_text))
             
