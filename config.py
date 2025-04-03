@@ -168,5 +168,28 @@ STORY_CONFIG = {
 
 # API credentials from environment variables
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Laura")
-FAL_KEY = os.getenv("FAL_KEY", "") 
+FAL_KEY = os.getenv("FAL_KEY", "")
+
+# ElevenLabs configuration
+ELEVENLABS_CONFIG = {
+    "voice": {
+        "name": "pNInz6obpgDQGcFmaJgB",  # Primary voice to use (Adam Legacy voice id pNInz6obpgDQGcFmaJgB)
+        "fallback_voices": ["Aria", "Rachel", "Domi"],  # Fallback voices in order of preference
+        "model": "eleven_multilingual_v2",  # Updated to latest quality model
+        "flash_model": "eleven_flash_v2",  # For low-latency needs
+        "max_chars": 800,  # Maximum characters per generation
+        "language": "en"  # Default language
+    },
+    "audio": {
+        "volume": 1.5,  # Volume multiplier for TTS audio
+        "save_raw_files": True,  # Whether to save raw TTS files for debugging
+        "stability": 0.5,  # Voice stability (0-1)
+        "similarity_boost": 0.75,  # Voice similarity boost (0-1)
+        "fit_to_video": {
+            "enabled": True,  # Whether to adjust audio speed to match video
+            "max_speed_up": 1.3,  # Maximum speed multiplier 
+            "min_speed_down": 1.0,  # Minimum speed multiplier 
+            "preserve_pitch": True  # Whether to maintain pitch while changing speed
+        }
+    }
+} 

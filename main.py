@@ -30,8 +30,8 @@ def main():
                         help="Type of content to generate")
     parser.add_argument("--count", type=int, default=1,
                         help="Number of videos to generate")
-    parser.add_argument("--id", type=int, 
-                        help="Specific ID to use (hook ID, story ID, or prompt ID)")
+    parser.add_argument("--id", type=str,
+                        help="Specific IDs to use (comma-separated for multiple IDs)")
     parser.add_argument("--all", action="store_true",
                         help="Generate all combinations (for UGC generator)")
     parser.add_argument("--batch", type=int, 
@@ -58,6 +58,18 @@ def main():
         if args.all:
             from config import UGC_CONFIG
             UGC_CONFIG["generate_all_combinations"] = True
+            
+        # Handle specific hook IDs if provided
+        if args.id:
+            from config import UGC_CONFIG
+            # Convert comma-separated string to list of integers
+            try:
+                hook_ids = [int(id.strip()) for id in args.id.split(',')]
+                UGC_CONFIG["specific_hook_ids"] = hook_ids
+                logging.info(f"Processing specific hook IDs: {hook_ids}")
+            except ValueError as e:
+                logging.error(f"Invalid hook ID format: {e}")
+                sys.exit(1)
             
         ugc_main()
         

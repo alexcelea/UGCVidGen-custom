@@ -142,6 +142,15 @@ python main.py --type story
 
 # Generate AI content
 python main.py --type ai --batch 1 --batch-size 5
+
+# Generate videos for specific hooks
+python main.py --type ugc --id 27,30,5,3,1,17
+
+# Generate videos for specific hooks with a custom count
+python main.py --type ugc --id 27,30,5,3,1,17 --count 10
+
+# Generate videos for specific hooks and generate all combinations
+python main.py --type ugc --id 27,30,5,3,1,17 --all
 ```
 
 ### Project Workflow Scripts

@@ -13,7 +13,7 @@ from tqdm import tqdm
 import numpy as np
 import tempfile
 import subprocess
-from elevenlabs import generate, save, set_api_key
+from elevenlabs import generate, save, set_api_key, Voices
 from dotenv import load_dotenv
 from datetime import datetime
 import requests
@@ -22,8 +22,11 @@ import json
 # Add the parent directory to the path to allow importing from the root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Load environment variables first
+load_dotenv()
+
 # Import the configuration
-from config import UGC_CONFIG, TARGET_RESOLUTION, ELEVENLABS_API_KEY, ELEVENLABS_VOICE
+from config import UGC_CONFIG, TARGET_RESOLUTION, ELEVENLABS_API_KEY, ELEVENLABS_CONFIG
 from scripts.utils import setup_directories, resize_video, get_random_file, position_text_in_tiktok_safe_area, visualize_safe_area
 
 # Verify ffmpeg installation
@@ -32,9 +35,6 @@ try:
     print("✅ ffmpeg is installed and working correctly")
 except (subprocess.CalledProcessError, FileNotFoundError):
     print("⚠️ WARNING: ffmpeg may not be installed or is not in PATH. This might cause audio issues.")
-
-# Load environment variables from .env file
-load_dotenv()
 
 # ---- CONFIGURATION ----
 PROJECT_NAME = UGC_CONFIG.get("project_name", "ugcReelGen")
@@ -58,8 +58,6 @@ MAX_CTA_DURATION = UGC_CONFIG.get("max_cta_duration", 60)
 # ElevenLabs configuration
 USE_ELEVENLABS = True  # Set to False to disable ElevenLabs TTS
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")  # API key from .env file
-ELEVENLABS_VOICE = os.getenv("ELEVENLABS_VOICE", "Adam")  # Voice name or ID from .env file
-ELEVENLABS_MODEL = "eleven_monolingual_v1"  # Default TTS model
 SAVE_TTS_FILES = True  # Set to True to save raw TTS files for debugging
 TTS_FILES_FOLDER = UGC_CONFIG.get("tts_files_folder", "output/ugc/tts_files")
 
@@ -418,122 +416,115 @@ def check_video_has_audio(video_path):
         logging.error(f"Error checking audio in video {video_path}: {e}")
         return False
 
-def generate_elevenlabs_tts(text, output_path):
-    """Generate TTS audio from text using ElevenLabs and save to file."""
+def generate_elevenlabs_tts(text, output_path, video_duration=None):
+    """Generate TTS audio using ElevenLabs API with improved error handling and best practices"""
+    if not ELEVENLABS_API_KEY:
+        raise ValueError("ELEVENLABS_API_KEY not found in environment variables")
+    
+    # Set the API key
+    set_api_key(ELEVENLABS_API_KEY)
+    
+    # Get voice configuration
+    voice_config = ELEVENLABS_CONFIG["voice"]
+    audio_config = ELEVENLABS_CONFIG["audio"]
+    
     try:
-        # Set the API key
-        set_api_key(ELEVENLABS_API_KEY)
+        # First try the direct voice ID approach
+        voice_id = voice_config["name"]
+        logging.info(f"Attempting to generate TTS with voice ID: {voice_id}")
         
-        # First, try using the voice name/ID directly from config
-        try:
-            # Generate audio using ElevenLabs
-            logging.info(f"Generating TTS with voice '{ELEVENLABS_VOICE}' and model '{ELEVENLABS_MODEL}'")
-            audio = generate(
-                text=text,
-                voice=ELEVENLABS_VOICE,
-                model=ELEVENLABS_MODEL
-            )
+        # Generate audio and get bytes
+        audio_bytes = generate(
+            text=text,
+            voice=voice_id  # Use voice ID string instead of voice object
+        )
+        
+        # Save the audio bytes directly to file
+        with open(output_path, 'wb') as f:
+            f.write(audio_bytes)
+        
+        # Verify file was created and has content
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise Exception(f"Failed to save audio file: {output_path}")
+        
+        # Get audio duration using ffprobe
+        audio_duration = float(subprocess.check_output([
+            'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', output_path
+        ]).decode().strip())
+        
+        logging.info(f"Generated audio duration: {audio_duration:.2f} seconds")
+        
+        # If video duration is provided and audio fitting is enabled, adjust the speed
+        if video_duration and audio_config.get("fit_to_video", {}).get("enabled", False):
+            fit_config = audio_config["fit_to_video"]
+            max_speed = fit_config.get("max_speed_up", 2.0)
+            min_speed = fit_config.get("min_speed_down", 0.5)
+            preserve_pitch = fit_config.get("preserve_pitch", True)
             
-            # Save the audio to file
-            save(audio, output_path)
+            # Calculate required speed multiplier
+            speed = audio_duration / video_duration
             
-            # Check file size and duration
-            if os.path.exists(output_path):
-                file_size = os.path.getsize(output_path)
-                logging.info(f"Generated TTS audio file at {output_path} (size: {file_size} bytes)")
+            # Clamp speed to configured limits
+            speed = min(max(speed, min_speed), max_speed)
+            
+            if speed != 1.0:
+                logging.info(f"Adjusting audio speed from {audio_duration:.2f}s to {video_duration:.2f}s (speed: {speed:.2f}x)")
                 
-                # Verify the audio file with ffmpeg
-                verify_audio_file(output_path)
+                # Create temporary file for the adjusted audio
+                temp_output = output_path + ".temp.mp3"
                 
-                # Check audio duration if file exists and has content
-                if file_size > 0:
-                    try:
-                        with AudioFileClip(output_path) as audio_clip:
-                            logging.info(f"TTS audio duration: {audio_clip.duration:.2f} seconds")
-                    except Exception as e:
-                        logging.error(f"Error checking TTS audio duration: {e}")
+                # Use ffmpeg to adjust audio speed
+                if preserve_pitch:
+                    # Use atempo filter for speed adjustment while preserving pitch
+                    cmd = [
+                        'ffmpeg', '-i', output_path,
+                        '-filter:a', f'atempo={speed}',
+                        '-y', temp_output
+                    ]
                 else:
-                    logging.error(f"Generated TTS file has zero size: {output_path}")
-                    return False
-            else:
-                logging.error(f"TTS file was not created at {output_path}")
-                return False
+                    # Use setpts filter for speed adjustment (changes pitch)
+                    cmd = [
+                        'ffmpeg', '-i', output_path,
+                        '-filter:a', f'setpts={1/speed}*PTS',
+                        '-y', temp_output
+                    ]
                 
-            # Save a copy of the TTS file if enabled
-            if SAVE_TTS_FILES:
-                setup_output_folder(TTS_FILES_FOLDER)
-                import shutil
-                tts_filename = f"tts_{text[:20].replace(' ', '_')}_{int(time.time())}.mp3"
-                tts_file_path = os.path.join(TTS_FILES_FOLDER, tts_filename)
-                shutil.copy(output_path, tts_file_path)
-                logging.info(f"Saved copy of TTS file to {tts_file_path}")
-            
-            logging.info(f"Generated ElevenLabs TTS audio for: {text}")
-            return True
-            
-        except Exception as voice_error:
-            logging.warning(f"Could not use configured voice '{ELEVENLABS_VOICE}': {voice_error}")
-            logging.info("Attempting to fetch available voices...")
-            
-            # If that fails, try to get the first available voice from the account
-            from elevenlabs.api import Voices
-            
-            available_voices = Voices.from_api()
-            if not available_voices:
-                raise Exception("No voices found in your ElevenLabs account")
-            
-            # Use the first available voice
-            first_voice = available_voices[0]
-            logging.info(f"Using alternative voice: {first_voice.name}")
-            
-            # Generate with the available voice
-            audio = generate(
-                text=text,
-                voice=first_voice.voice_id,
-                model=ELEVENLABS_MODEL
-            )
-            
-            # Save the audio to file
-            save(audio, output_path)
-            
-            # Check file size and duration
-            if os.path.exists(output_path):
-                file_size = os.path.getsize(output_path)
-                logging.info(f"Generated TTS audio file at {output_path} (size: {file_size} bytes)")
+                subprocess.run(cmd, check=True)
                 
-                # Verify the audio file with ffmpeg
-                verify_audio_file(output_path)
+                # Replace original with adjusted version
+                os.replace(temp_output, output_path)
                 
-                # Check audio duration if file exists and has content
-                if file_size > 0:
-                    try:
-                        with AudioFileClip(output_path) as audio_clip:
-                            logging.info(f"TTS audio duration: {audio_clip.duration:.2f} seconds")
-                    except Exception as e:
-                        logging.error(f"Error checking TTS audio duration: {e}")
-                else:
-                    logging.error(f"Generated TTS file has zero size: {output_path}")
-                    return False
-            else:
-                logging.error(f"TTS file was not created at {output_path}")
-                return False
+                # Verify the new duration
+                new_duration = float(subprocess.check_output([
+                    'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1', output_path
+                ]).decode().strip())
                 
-            # Save a copy of the TTS file if enabled
-            if SAVE_TTS_FILES:
-                setup_output_folder(TTS_FILES_FOLDER)
-                import shutil
-                tts_filename = f"tts_{text[:20].replace(' ', '_')}_{int(time.time())}.mp3"
-                tts_file_path = os.path.join(TTS_FILES_FOLDER, tts_filename)
-                shutil.copy(output_path, tts_file_path)
-                logging.info(f"Saved copy of TTS file to {tts_file_path}")
-            
-            logging.info(f"Generated ElevenLabs TTS audio with voice '{first_voice.name}' for: {text}")
-            return True
-            
+                logging.info(f"Adjusted audio duration: {new_duration:.2f} seconds")
+        
+        return output_path
+        
     except Exception as e:
-        logging.error(f"Error generating ElevenLabs TTS: {e}")
-        # If ElevenLabs fails, we return False
-        return False
+        logging.error(f"Error generating TTS: {e}")
+        # Try fallback to previous working method
+        try:
+            logging.info("Attempting fallback to previous working method")
+            # Generate audio bytes with fallback model
+            audio_bytes = generate(
+                text=text,
+                voice=voice_config["name"],
+                model="eleven_monolingual_v1"  # Use previous working model
+            )
+            
+            # Save the audio bytes directly to file
+            with open(output_path, 'wb') as f:
+                f.write(audio_bytes)
+                
+            return output_path
+        except Exception as fallback_error:
+            logging.error(f"Fallback method also failed: {fallback_error}")
+            raise
 
 def resize_video(clip, target_resolution):
     """Resize video to fill target resolution (may crop to fill)"""
@@ -583,7 +574,12 @@ def create_video(hook_video_path, hook_text, cta_video_paths, music_path, output
             except Exception as e:
                 logging.warning(f"Error finding TTS text: {e}. Using original hook text.")
             
-            if generate_elevenlabs_tts(tts_text, tts_file):
+            # Get hook video duration for TTS adjustment
+            with VideoFileClip(hook_video_path) as hook_clip:
+                hook_duration = hook_clip.duration
+                logging.info(f"Hook video duration: {hook_duration:.2f} seconds")
+            
+            if generate_elevenlabs_tts(tts_text, tts_file, video_duration=hook_duration):
                 try:
                     # Verify audio file before loading
                     if verify_audio_file(tts_file):
@@ -1220,52 +1216,99 @@ def main():
                     continue
                     
         else:
-            # Generate random combinations
-            print(f"\n🎥 Generating {NUM_VIDEOS} videos...")
-            for i in tqdm(range(NUM_VIDEOS), desc="Generating videos"):
-                try:
-                    hook_video = get_hook_video(HOOK_VIDEOS_FOLDER)
-                    # Get unused hook with ID
-                    unused_hooks = hooks[~hooks["text"].isin(used_hooks)]
-                    if unused_hooks.empty:
-                        raise ValueError("No unused hooks available.")
-                    selected_hook = unused_hooks.sample(1).iloc[0]
-                    hook_text = selected_hook["text"]
-                    hook_id = selected_hook["id"]
-                    
-                    cta_videos = get_multiple_cta_videos(CTA_VIDEOS_FOLDER, MAX_CTA_VIDEOS, MAX_CTA_DURATION)
-                    music_file = get_music(MUSIC_FOLDER)
+            # Check for specific hook IDs
+            specific_hook_ids = UGC_CONFIG.get("specific_hook_ids")
+            if specific_hook_ids:
+                print(f"\n🎥 Generating videos for specific hook IDs: {specific_hook_ids}")
+                # Filter hooks to only include specified IDs
+                hooks = hooks[hooks["id"].isin(specific_hook_ids)]
+                if hooks.empty:
+                    print("\n⚠️  No hooks found with the specified IDs!")
+                    logging.error("No hooks found with the specified IDs")
+                    return
+                print(f"Found {len(hooks)} hooks with specified IDs")
+                
+                # Generate videos for each specified hook
+                for i, hook_data in enumerate(tqdm(hooks.itertuples(), desc="Generating videos")):
+                    try:
+                        hook_video = get_hook_video(HOOK_VIDEOS_FOLDER)
+                        hook_text = hook_data.text
+                        hook_id = hook_data.id
+                        
+                        cta_videos = get_multiple_cta_videos(CTA_VIDEOS_FOLDER, MAX_CTA_VIDEOS, MAX_CTA_DURATION)
+                        music_file = get_music(MUSIC_FOLDER)
 
-                    video_number = last_number + i + 1
-                    
-                    # Create descriptive filename
-                    filename = create_descriptive_filename(hook_id, hook_text, hook_video, cta_videos, video_number)
-                    output_path = os.path.join(OUTPUT_FOLDER, filename)
+                        video_number = last_number + i + 1
+                        
+                        # Create descriptive filename
+                        filename = create_descriptive_filename(hook_id, hook_text, hook_video, cta_videos, video_number)
+                        output_path = os.path.join(OUTPUT_FOLDER, filename)
 
-                    create_video(hook_video, hook_text, cta_videos, music_file, output_path)
+                        create_video(hook_video, hook_text, cta_videos, music_file, output_path)
 
-                    # Save video details
-                    save_video_details(
-                        hook_video,
-                        hook_text,
-                        cta_videos,
-                        music_file,
-                        os.path.basename(output_path)
-                    )
+                        # Save video details
+                        save_video_details(
+                            hook_video,
+                            hook_text,
+                            cta_videos,
+                            music_file,
+                            os.path.basename(output_path)
+                        )
 
-                    save_used_hook(USED_HOOKS_FILE, hook_text)
-                    used_hooks.add(hook_text)
-                    
-                except ValueError as e:
-                    if "No unused hooks available" in str(e):
-                        print("\n⚠️  Stopping: No more fresh hooks available!")
-                        logging.info("Process stopped: All hooks have been used")
-                        return
-                    raise
-                except Exception as e:
-                    logging.error(f"Error during video creation for video {video_number}: {e}")
-                    print(f"\n❌ Error creating video {video_number}: {e}")
-                    continue
+                        save_used_hook(USED_HOOKS_FILE, hook_text)
+                        used_hooks.add(hook_text)
+                        
+                    except Exception as e:
+                        logging.error(f"Error during video creation for hook ID {hook_id}: {e}")
+                        print(f"\n❌ Error creating video for hook ID {hook_id}: {e}")
+                        continue
+            else:
+                # Generate random combinations
+                print(f"\n🎥 Generating {NUM_VIDEOS} videos...")
+                for i in tqdm(range(NUM_VIDEOS), desc="Generating videos"):
+                    try:
+                        hook_video = get_hook_video(HOOK_VIDEOS_FOLDER)
+                        # Get unused hook with ID
+                        unused_hooks = hooks[~hooks["text"].isin(used_hooks)]
+                        if unused_hooks.empty:
+                            raise ValueError("No unused hooks available.")
+                        selected_hook = unused_hooks.sample(1).iloc[0]
+                        hook_text = selected_hook["text"]
+                        hook_id = selected_hook["id"]
+                        
+                        cta_videos = get_multiple_cta_videos(CTA_VIDEOS_FOLDER, MAX_CTA_VIDEOS, MAX_CTA_DURATION)
+                        music_file = get_music(MUSIC_FOLDER)
+
+                        video_number = last_number + i + 1
+                        
+                        # Create descriptive filename
+                        filename = create_descriptive_filename(hook_id, hook_text, hook_video, cta_videos, video_number)
+                        output_path = os.path.join(OUTPUT_FOLDER, filename)
+
+                        create_video(hook_video, hook_text, cta_videos, music_file, output_path)
+
+                        # Save video details
+                        save_video_details(
+                            hook_video,
+                            hook_text,
+                            cta_videos,
+                            music_file,
+                            os.path.basename(output_path)
+                        )
+
+                        save_used_hook(USED_HOOKS_FILE, hook_text)
+                        used_hooks.add(hook_text)
+                        
+                    except ValueError as e:
+                        if "No unused hooks available" in str(e):
+                            print("\n⚠️  Stopping: No more fresh hooks available!")
+                            logging.info("Process stopped: All hooks have been used")
+                            return
+                        raise
+                    except Exception as e:
+                        logging.error(f"Error during video creation for video {video_number}: {e}")
+                        print(f"\n❌ Error creating video {video_number}: {e}")
+                        continue
 
         end_time = time.time()
         duration = end_time - start_time
